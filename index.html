@@ -392,40 +392,45 @@
             }
         }
 
+        // Улучшенная классификация новостей с надёжным промптом
         async function classifyNewsBatch(newsItems, instrumentType) {
             const key = document.getElementById('api_key_input').value.trim();
             const model = document.getElementById('modelSelect').value;
-            if (!key || newsItems.length === 0) {
+            // Если нет ключа, сразу возвращаем нейтральные
+            if (!key) {
                 showAIFallbackWarning(true);
                 return newsItems.map(() => ({ sentiment: 'neutral', impact: 'low' }));
+            }
+            if (newsItems.length === 0) {
+                return [];
             }
 
             let instruction = '';
             if (instrumentType === 'Si') {
                 instruction = `Ты аналитик, специализирующийся на влиянии новостей на курс рубля (фьючерс Si). 
-Для каждой новости определи:
-- sentiment: "bullish" (рубль слабеет → доллар растёт) если новость негативна для РФ,
-  "bearish" (рубль укрепляется) если позитивна, иначе "neutral".
-- impact: "high" (сильное влияние), "medium" (среднее), "low" (слабое) — на основе важности новости для валютного рынка.`;
+Для каждой новости определи sentiment и impact в формате JSON.
+- sentiment: "bullish" (рубль слабеет → доллар растёт) если новость негативна для РФ (санкции, война, падение нефти, кризис)
+- sentiment: "bearish" (рубль укрепляется) если новость позитивна для РФ (рост нефти, переговоры, успехи экономики)
+- sentiment: "neutral" если нет явного влияния.
+- impact: "high" (сильное влияние), "medium" (среднее), "low" (слабое) — оцени важность новости для валютного рынка.`;
             } else if (instrumentType === 'SBER') {
                 instruction = `Ты аналитик, специализирующийся на влиянии новостей на акции Сбера (Sberbank).
-Для каждой новости определи:
+Для каждой новости определи sentiment и impact.
 - sentiment: "bullish" (позитивно для акций), "bearish" (негативно), "neutral".
-- impact: "high", "medium", "low" — на основе значимости новости для банковского сектора.`;
+- impact: "high", "medium", "low" — оцени значимость новости для банковского сектора.`;
             } else if (instrumentType === 'BR') {
                 instruction = `Ты аналитик, специализирующийся на влиянии новостей на цену нефти Brent.
-Для каждой новости определи:
+Для каждой новости определи sentiment и impact.
 - sentiment: "bullish" (рост цен), "bearish" (падение), "neutral".
-- impact: "high", "medium", "low" — на основе важности новости для нефтяного рынка.`;
+- impact: "high", "medium", "low" — оцени важность новости для нефтяного рынка.`;
             } else {
                 instruction = `Для каждой новости определи sentiment (bullish/bearish/neutral) и impact (high/medium/low).`;
             }
 
-            let prompt = instruction + "\n\nСтарайся избегать 'neutral' и 'low', если есть явное влияние.\n\nСписок новостей (заголовок + краткое содержание):\n";
+            let prompt = instruction + "\n\nВерни только JSON-массив в формате:\n[{\"sentiment\": \"bullish\", \"impact\": \"high\"}, ...]\nБез пояснений, только JSON.\n\nНовости:\n";
             newsItems.forEach((item, idx) => {
                 prompt += `${idx + 1}. Заголовок: ${item.title || ''}\n   Текст: ${item.text || ''}\n`;
             });
-            prompt += "\nОтветь строго в формате JSON: {\"results\": [{\"sentiment\": \"bullish\", \"impact\": \"high\"}, ...]}";
 
             const config = getApiConfig(model);
             const headers = {
@@ -451,12 +456,13 @@
                 const data = await response.json();
                 if (data.error) throw new Error(data.error.message);
                 const content = data.choices[0].message.content;
-                const jsonMatch = content.match(/\{[\s\S]*\}/);
-                if (!jsonMatch) throw new Error("No JSON in response");
-                const result = JSON.parse(jsonMatch[0]);
-                if (result.results && Array.isArray(result.results) && result.results.length === newsItems.length) {
+                // Ищем JSON в ответе (бывает, что модель добавляет пояснения)
+                const jsonMatch = content.match(/\[[\s\S]*\]/);
+                if (!jsonMatch) throw new Error("No JSON array in response");
+                const results = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(results) && results.length === newsItems.length) {
                     hideAIFallbackWarning();
-                    return result.results;
+                    return results;
                 } else {
                     throw new Error("Invalid results array");
                 }
@@ -467,11 +473,10 @@
             }
         }
 
-        // ==================== ИЗМЕНЁННАЯ ФУНКЦИЯ ЗАГРУЗКИ RSS ==================
         async function fetchFromRSS(rssUrl) {
             const news = [];
             const encodedUrl = encodeURIComponent(rssUrl);
-            const apiUrl = `/api/rss?url=${encodedUrl}`; // обращаемся к своему серверу
+            const apiUrl = `/api/rss?url=${encodedUrl}`;
 
             try {
                 const response = await fetch(apiUrl);
