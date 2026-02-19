@@ -58,21 +58,20 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .error-msg { color: var(--sell); font-size: 12px; text-align: center; margin-top: 10px; }
 
+        /* Адаптивный блок управления тикером */
         .ticker-controls {
             display: flex;
+            flex-wrap: wrap;
             gap: 8px;
             margin-bottom: 12px;
             align-items: center;
-            overflow-x: auto;
-            white-space: nowrap;
-            padding-bottom: 4px;
         }
         .ticker-input {
-            flex: 0 0 150px;
+            flex: 2 1 150px;
             min-width: 120px;
         }
         .ticker-btn {
-            flex: 0 0 auto;
+            flex: 0 1 auto;
             background: #21262d;
             color: white;
             border: 1px solid var(--border);
@@ -108,7 +107,7 @@
             <div class="ticker-controls">
                 <input type="text" id="tickerInput" class="ticker-input" placeholder="Код контракта, например SiH6" value="SiH6">
                 <button class="ticker-btn" onclick="setTicker('SiH6')">Si</button>
-                <button class="ticker-btn" onclick="setTicker('SBRF-3.26')">SBER</button>
+                <button class="ticker-btn" onclick="setTicker('SRH6')">SBER</button>
                 <button class="ticker-btn" onclick="setTicker('BRH6')">BR</button>
                 <button class="ticker-btn" onclick="applyTicker()">Загрузить</button>
             </div>
@@ -201,9 +200,10 @@
 
         // ==================== ФУНКЦИИ ОПРЕДЕЛЕНИЯ ТИПА ИНСТРУМЕНТА ==================
         function getInstrumentType(ticker) {
-            if (ticker.toUpperCase().includes('SI')) return 'Si';
-            if (ticker.toUpperCase().includes('SBRF') || ticker.toUpperCase().includes('SBER')) return 'SBER';
-            if (ticker.toUpperCase().includes('BR')) return 'BR';
+            const upper = ticker.toUpperCase();
+            if (upper.includes('SI')) return 'Si';
+            if (upper.includes('SR') || upper.includes('SBER')) return 'SBER'; // SRH6, SBRF и т.д.
+            if (upper.includes('BR')) return 'BR';
             return 'unknown';
         }
 
