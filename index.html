@@ -1,4 +1,4 @@
-9<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -32,11 +32,14 @@
         
         .news-box { margin-top: 12px; max-height: 300px; overflow-y: auto; font-size: 12px; }
         .news-item { padding: 8px; border-left: 4px solid #3b82f6; margin-bottom: 6px; background: rgba(255,255,255,0.02); }
-        .news-time { color: #60a5fa; font-size: 10px; font-weight: 600; margin-bottom: 2px; display: flex; align-items: center; gap: 4px; }
+        .news-time { color: #60a5fa; font-size: 10px; font-weight: 600; margin-bottom: 2px; display: flex; align-items: center; gap: 4px; justify-content: space-between; }
         .news-sentiment { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 600; margin-top: 4px; }
         .sentiment-bullish { background: rgba(35, 134, 54, 0.2); color: #3fb950; }
         .sentiment-bearish { background: rgba(248, 81, 73, 0.2); color: #f85149; }
         .sentiment-neutral { background: rgba(210, 153, 34, 0.2); color: #d29922; }
+        .impact-high { color: #f85149; font-weight: bold; }
+        .impact-medium { color: #d29922; }
+        .impact-low { color: #3b82f6; }
         
         .news-filter { display: flex; gap: 5px; margin-bottom: 8px; flex-wrap: wrap; }
         .filter-btn { background: #21262d; color: var(--text); border: 1px solid var(--border); padding: 4px 8px; border-radius: 12px; font-size: 10px; cursor: pointer; transition: 0.2s; }
@@ -142,13 +145,13 @@
             <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
                 <label style="font-size: 11px; color: #8b949e;">Парсинг новостей (json):</label>
                 <select id="newsModelSelect">
-                    <option value="google/gemini-3-flash-preview" selected>Gemini 2.0 Flash</option>
+                    <option value="google/gemini-3-flash-preview" selected>Gemini 3 Flash Preview</option>
                     <option value="anthropic/claude-3.5-haiku">Claude 3.5 Haiku</option>
                 </select>
 
                 <label style="font-size: 11px; color: #8b949e; margin-top: 8px; display: block;">Логика и сигналы (reasoning):</label>
                 <select id="analysisModelSelect">
-                    <option value="deepseek/deepseek-v3.2" selected>DeepSeek R1</option>
+                    <option value="deepseek/deepseek-v3.2" selected>DeepSeek V3.2</option>
                     <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
                 </select>
 
@@ -159,7 +162,7 @@
     </div>
 
     <script>
-                // ================= ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =================
+        // ================= ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =================
         const MOEX_BASE = "https://iss.moex.com/iss/engines/futures/markets/forts";
         const RSS_FEEDS = ['https://lenta.ru/rss/news', 'https://www.vedomosti.ru/rss/articles'];
 
@@ -173,7 +176,6 @@
 
         const antiCache = () => `_=${Date.now()}`;
 
-        // 👇 ВОТ ЭТУ ФУНКЦИЮ НУЖНО ВЕРНУТЬ 👇
         function getInstrumentType(ticker) {
             const u = ticker.toUpperCase();
             if (u.includes('SI')) return 'Si';
@@ -181,7 +183,6 @@
             if (u.includes('BR')) return 'BR';
             return 'unknown';
         }
-        // 👆 👆 👆
 
         // ================= ПОЛУЧЕНИЕ ДАННЫХ MOEX =================
 
@@ -218,11 +219,11 @@
                     low: r[cols.indexOf('low')], close: r[cols.indexOf('close')]
                 }));
                 renderChart(historyData);
-                calcTech(); // Считаем индикаторы сразу после загрузки
+                calcTech();
             } catch(e) {}
         }
 
-        // ================= НОВОСТИ =================
+        // ================= НОВОСТИ И ПАРСИНГ =================
         async function fetchNews() {
             let fetched = [];
             for (const url of RSS_FEEDS) {
@@ -242,26 +243,55 @@
             
             if(key) {
                 try {
-                    const prompt = `Оцени влияние новостей на ${currentInstrumentType}. Верни JSON массив: [{"sentiment": "bullish"|"bearish"|"neutral"}].\n` + toAnalyze.map((n,i) => `${i+1}. ${n.title}`).join('\n');
+                    // Улучшенный промпт: требуем строгий формат и добавляем параметр impact
+                    const prompt = `Ты финансовый аналитик. Оцени влияние новостей на фьючерс ${currentInstrumentType}.
+Верни строго JSON массив объектов, где каждый объект соответствует новости по порядку.
+Формат: [{"sentiment": "bullish"|"bearish"|"neutral", "impact": "high"|"medium"|"low"}].
+Без markdown, без пояснений.
+Новости:
+` + toAnalyze.map((n,i) => `${i+1}. ${n.title}`).join('\n');
+
                     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                         method: 'POST', headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-                        body: JSON.stringify({ model: newsModel, messages: [{role:"user", content: prompt}], temperature: 0 })
+                        body: JSON.stringify({ model: newsModel, messages: [{role:"user", content: prompt}], temperature: 0.1 })
                     });
-                    const data = await res.json();
-                    const content = data.choices[0].message.content.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-                    const results = JSON.parse(content.match(/\[[\s\S]*\]/)[0]);
                     
-                    toAnalyze.forEach((n, i) => n.sentiment = results[i]?.sentiment || 'neutral');
-                } catch(e) { toAnalyze.forEach(n => n.sentiment = 'neutral'); }
+                    const data = await res.json();
+                    let rawContent = data.choices[0].message.content;
+                    
+                    // ОЧИСТКА ОТ ТЕГОВ МЫШЛЕНИЯ И MARKDOWN (Главный фикс парсинга)
+                    let cleanContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
+                    cleanContent = cleanContent.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+                    
+                    let results = [];
+                    try {
+                        const match = cleanContent.match(/\[[\s\S]*\]/);
+                        results = JSON.parse(match[0]);
+                    } catch(parseErr) {
+                        console.error("Не удалось распарсить JSON новостей:", cleanContent);
+                    }
+                    
+                    toAnalyze.forEach((n, i) => {
+                        n.sentiment = results[i]?.sentiment || 'neutral';
+                        n.impact = results[i]?.impact || 'low';
+                    });
+                } catch(e) { 
+                    console.error("Сбой сети при оценке новостей:", e);
+                    toAnalyze.forEach(n => { n.sentiment = 'neutral'; n.impact = 'low'; }); 
+                }
             } else {
-                toAnalyze.forEach(n => n.sentiment = 'neutral');
+                toAnalyze.forEach(n => { n.sentiment = 'neutral'; n.impact = 'low'; });
             }
 
             allNews = toAnalyze;
             
-            // Считаем скор новостей
             let b=0, m=0;
-            allNews.forEach(n => { if(n.sentiment==='bullish') b++; if(n.sentiment==='bearish') m++; });
+            allNews.forEach(n => { 
+                // Учитываем силу влияния (impact) при подсчете скора
+                let multiplier = n.impact === 'high' ? 2 : (n.impact === 'medium' ? 1.5 : 1);
+                if(n.sentiment === 'bullish') b += multiplier; 
+                if(n.sentiment === 'bearish') m += multiplier; 
+            });
             analysisState.newsScore = b - m;
 
             renderNews(allNews);
@@ -271,19 +301,21 @@
             document.getElementById('newsCount').innerText = news.length;
             document.getElementById('newsList').innerHTML = news.map(n => `
                 <div class="news-item" style="border-left-color: ${n.sentiment === 'bullish'?'#238636':n.sentiment==='bearish'?'#f85149':'#3b82f6'}">
-                    <div class="news-time">${n.time.toLocaleTimeString()} <span class="news-sentiment sentiment-${n.sentiment}">${n.sentiment}</span></div>
+                    <div class="news-time">
+                        <span>${n.time.toLocaleTimeString()} <span class="news-sentiment sentiment-${n.sentiment}">${n.sentiment}</span></span>
+                        <span class="impact-${n.impact || 'low'}" style="font-size:9px;">Влияние: ${n.impact || 'low'}</span>
+                    </div>
                     <div style="font-size: 11px;"><b>${n.title}</b></div>
                 </div>
             `).join('');
         }
 
-        // ================= ТЕХНИЧЕСКИЙ АНАЛИЗ (ЧЕСТНЫЙ) =================
+        // ================= ТЕХНИЧЕСКИЙ АНАЛИЗ =================
         function calcTech() {
             if(historyData.length < 50) return null;
             const closes = historyData.map(d => d.close);
             const last = closes[closes.length-1];
 
-            // Простой RSI
             let gains = 0, losses = 0;
             for(let i = closes.length - 14; i < closes.length; i++){
                 let diff = closes[i] - closes[i-1];
@@ -291,19 +323,16 @@
             }
             const rsi = losses === 0 ? 100 : 100 - (100 / (1 + gains/losses));
 
-            // EMA и Trend
             const ema50 = closes.slice(-50).reduce((a,b)=>a+b)/50;
             const ema200 = closes.slice(-200).reduce((a,b)=>a+b)/200;
             const trend = last > ema50 && last > ema200 ? 'BULL' : (last < ema50 && last < ema200 ? 'BEAR' : 'FLAT');
 
-            // ATR (Волатильность)
             let tr = 0;
             for(let i = historyData.length - 14; i < historyData.length; i++) {
                 tr += Math.max(historyData[i].high - historyData[i].low, Math.abs(historyData[i].high - closes[i-1]));
             }
             const atr = tr / 14;
 
-            // MACD (упрощенный)
             const macd = (closes.slice(-12).reduce((a,b)=>a+b)/12) - (closes.slice(-26).reduce((a,b)=>a+b)/26);
 
             document.getElementById('statRsi').innerText = rsi.toFixed(1);
@@ -315,7 +344,7 @@
             return { price: last, rsi, atr, macd, trend };
         }
 
-        // ================= ГЛАВНЫЙ АНАЛИЗ С ФИЛЬТРОМ (ГИСТЕРЕЗИС) =================
+        // ================= ГЛАВНЫЙ АНАЛИЗ С ФИЛЬТРОМ =================
         async function runAnalysis() {
             const key = document.getElementById('api_key_input').value.trim();
             const model = document.getElementById('analysisModelSelect').value;
@@ -328,28 +357,34 @@
             btn.innerText = "Анализирую..."; btn.style.opacity = '0.5';
             document.getElementById('updateBadge').style.display = 'none';
 
-            // ДОБАВЛЯЕМ ПАМЯТЬ В ПРОМПТ! Это устраняет хаотичные скачки
             const memoryText = lastSignal.signal !== 'ОЖИДАНИЕ' 
                 ? `Твой ПРЕДЫДУЩИЙ сигнал был: ${lastSignal.signal}. Если техническая картина и новости не изменились кардинально, ПОДТВЕРДИ предыдущий сигнал. Не меняй позицию из-за микроколебаний.`
                 : '';
 
             const prompt = `Ты трейдер. Актив: ${currentTicker}.
-            Техника: Цена: ${tech.price}, RSI: ${tech.rsi.toFixed(1)}, MACD: ${tech.macd.toFixed(2)}, Тренд: ${tech.trend}, ATR(волатильность): ${tech.atr.toFixed(2)}.
-            Новости (Скор: ${analysisState.newsScore}): ${allNews.slice(0,3).map(n=>n.title).join('; ')}.
-            
-            ${memoryText}
-            
-            Ответь строго JSON (ключи: signal (ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ), confidence (0-100), entry (вход), tp (тэйк), sl (стоп), reason (почему)). 
-            Если сигнал ДЕРЖАТЬ, entry/tp/sl = 0. Без markdown.`;
+Техника: Цена: ${tech.price}, RSI: ${tech.rsi.toFixed(1)}, MACD: ${tech.macd.toFixed(2)}, Тренд: ${tech.trend}, ATR: ${tech.atr.toFixed(2)}.
+Новости (Общий скор: ${analysisState.newsScore.toFixed(1)}): ${allNews.slice(0,3).map(n=>`[Влияние: ${n.impact}] ${n.title}`).join('; ')}.
+
+${memoryText}
+
+Ответь строго JSON (ключи: signal (ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ), confidence (0-100), entry (вход), tp (тэйк), sl (стоп), reason (почему)). 
+Если сигнал ДЕРЖАТЬ, entry/tp/sl = 0. Без markdown.`;
 
             try {
                 const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                     method: 'POST', headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
                     body: JSON.stringify({ model: model, messages: [{role:"user", content: prompt}], temperature: 0.1 })
                 });
+                
                 const data = await res.json();
-                const content = data.choices[0].message.content.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-                const json = JSON.parse(content.match(/\{[\s\S]*\}/)[0]);
+                let rawContent = data.choices[0].message.content;
+                
+                // ОЧИСТКА ОТ ТЕГОВ МЫШЛЕНИЯ И MARKDOWN ДЛЯ ТОРГОВОГО СИГНАЛА
+                let cleanContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
+                cleanContent = cleanContent.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+                
+                const match = cleanContent.match(/\{[\s\S]*\}/);
+                const json = JSON.parse(match[0]);
                 
                 processNewSignal(json, tech.price);
             } catch(e) { console.error("Ошибка AI", e); }
@@ -357,33 +392,24 @@
             btn.innerText = "Анализ (или авто 1 мин)"; btn.style.opacity = '1';
         }
 
-        // Логика защиты от дребезга (Hysteresis Filter)
         function processNewSignal(newSignal, currentPrice) {
             let shouldRedraw = false;
-
-            // 1. Изменилось направление (Был BUY, стал SELL)
             if (newSignal.signal !== lastSignal.signal) shouldRedraw = true;
-            
-            // 2. Сигнал тот же, но уверенность упала/выросла ОЧЕНЬ сильно (> 15%)
             if (Math.abs(newSignal.confidence - lastSignal.confidence) >= 15) shouldRedraw = true;
 
-            // 3. Цена пробила старый Тейк или Стоп (Нужен новый план)
             if (lastSignal.signal !== 'ОЖИДАНИЕ' && lastSignal.tp && lastSignal.sl) {
                 if (lastSignal.signal === 'ПОКУПКА' && (currentPrice >= lastSignal.tp || currentPrice <= lastSignal.sl)) shouldRedraw = true;
                 if (lastSignal.signal === 'ПРОДАЖА' && (currentPrice <= lastSignal.tp || currentPrice >= lastSignal.sl)) shouldRedraw = true;
             }
 
             if (shouldRedraw || lastSignal.signal === 'ОЖИДАНИЕ') {
-                // ОБНОВЛЯЕМ ПОЛНОСТЬЮ
                 lastSignal = { ...newSignal, time: Date.now() };
                 updateUI(lastSignal);
                 drawLines(lastSignal.entry, lastSignal.tp, lastSignal.sl);
             } else {
-                // ПРОСТО ПОДТВЕРЖДАЕМ, ЧТО ВСЕ ОК (Без перерисовки интерфейса и графиков)
                 const badge = document.getElementById('updateBadge');
                 badge.innerText = `Подтверждено в ${new Date().toLocaleTimeString()}`;
                 badge.style.display = 'block';
-                // Слегка обновляем лог
                 document.getElementById('ai_desc').innerText = newSignal.reason;
             }
         }
@@ -433,7 +459,7 @@
             currentTicker = t; currentInstrumentType = getInstrumentType(t);
             document.getElementById('tickerInput').value = t;
             document.getElementById('tickerDisplay').innerText = t;
-            lastSignal = { signal: 'ОЖИДАНИЕ', confidence: 0 }; // Сброс памяти при смене тикера
+            lastSignal = { signal: 'ОЖИДАНИЕ', confidence: 0 }; 
             updateUI(lastSignal);
             fetchCandles(); fetchQuotes(); fetchNews(); 
         }
@@ -464,10 +490,8 @@
 
             setTicker('SiH6');
             
-            // Котировки обновляем каждые 5 сек
             setInterval(fetchQuotes, 5000);
             
-            // Авто-Анализ каждые 60 секунд (работает тихо, обновляет UI только если надо)
             autoAnalysisInterval = setInterval(() => {
                 if (document.getElementById('api_key_input').value.trim()) {
                     runAnalysis();
