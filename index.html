@@ -52,13 +52,13 @@
         button.small { background: #21262d; width: auto; padding: 8px 12px; margin-top: 0; font-size: 12px; }
         
         input { width: 100%; padding: 10px; background: #0d1117; color: white; border: 1px solid var(--border); border-radius: 10px; margin-top: 6px; font-size: 14px; }
+        select { width: 100%; padding: 10px; background: #0d1117; color: white; border: 1px solid var(--border); border-radius: 10px; margin-top: 6px; font-size: 14px; cursor: pointer; }
         
         #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--card); padding: 10px 20px; border-radius: 30px; border: 1px solid var(--border); z-index: 100; font-size: 12px; display: flex; align-items: center; gap: 8px; }
         .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .error-msg { color: var(--sell); font-size: 12px; text-align: center; margin-top: 10px; }
 
-        /* Адаптивный блок управления тикером */
         .ticker-controls {
             display: flex;
             flex-wrap: wrap;
@@ -172,8 +172,18 @@
 
             <button onclick="runAnalysis()" type="button"> КОМПЛЕКСНЫЙ АНАЛИЗ</button>
 
+            <!-- Блок выбора модели и API ключа -->
             <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
-                <label style="font-size: 11px;">API Key:</label>
+                <label style="font-size: 11px;">Модель AI:</label>
+                <select id="modelSelect">
+                    <option value="deepseek/deepseek-v3.2" selected>DeepSeek V3.2</option>
+                    <option value="google/gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
+                    <option value="minimax/minimax-01">Minimax M2.5</option>
+                    <option value="moonshotai/kimi-v2.5">Kimi K2.5</option>
+                    <option value="z-ai/glm-5">GLM 5</option>
+                </select>
+
+                <label style="font-size: 11px; margin-top: 8px; display: block;">API Key:</label>
                 <input type="password" id="api_key_input" placeholder="sk-or-..." value="">
                 <button class="small" onclick="saveKey()" style="margin-top: 4px; width: 100%;">Сохранить</button>
             </div>
@@ -185,7 +195,7 @@
         const MOEX_BASE = "https://iss.moex.com/iss/engines/futures/markets/forts";
         
         let currentTicker = "SiH6";
-        let currentInstrumentType = 'Si'; // по умолчанию
+        let currentInstrumentType = 'Si';
         let chart = null;
         let candleSeries = null;
         let priceLines = [];
@@ -202,16 +212,14 @@
         function getInstrumentType(ticker) {
             const upper = ticker.toUpperCase();
             if (upper.includes('SI')) return 'Si';
-            if (upper.includes('SR') || upper.includes('SBER')) return 'SBER'; // SRH6, SBRF и т.д.
+            if (upper.includes('SR') || upper.includes('SBER')) return 'SBER';
             if (upper.includes('BR')) return 'BR';
             return 'unknown';
         }
 
         function updateInstrumentLabel() {
             const label = document.getElementById('instrumentNewsLabel');
-            if (label) {
-                label.innerText = `для ${currentInstrumentType}`;
-            }
+            if (label) label.innerText = `для ${currentInstrumentType}`;
         }
 
         // ==================== 1. УПРАВЛЕНИЕ ТИКЕРОМ ==================
@@ -224,7 +232,6 @@
             document.getElementById('tickerDisplay').innerText = ticker;
             updateInstrumentLabel();
 
-            // Перезагружаем данные
             fetchQuotes();
             fetchCandles();
             fetchNews(); // новости с новым типом
@@ -232,9 +239,7 @@
 
         function applyTicker() {
             const newTicker = document.getElementById('tickerInput').value.trim();
-            if (newTicker) {
-                setTicker(newTicker);
-            }
+            if (newTicker) setTicker(newTicker);
         }
 
         // ==================== 2. ДАННЫЕ MOEX ==================
@@ -247,7 +252,6 @@
                 const cols = data.marketdata.columns;
                 const row = data.marketdata.data[0];
                 if(!row) {
-                    console.warn("No quote data for", currentTicker);
                     document.getElementById('currentPrice').innerText = '--';
                     document.getElementById('changePercent').innerText = '--';
                     return;
@@ -318,12 +322,12 @@
 
         async function classifyNewsBatch(newsItems, instrumentType) {
             const key = document.getElementById('api_key_input').value.trim();
+            const model = document.getElementById('modelSelect').value; // выбранная модель
             if (!key || newsItems.length === 0) {
                 showAIFallbackWarning(true);
                 return newsItems.map(() => 'neutral');
             }
 
-            // Настраиваем промпт в зависимости от типа инструмента
             let instruction = '';
             if (instrumentType === 'Si') {
                 instruction = `Ты аналитик, специализирующийся на влиянии новостей на курс рубля (фьючерс Si). 
@@ -361,7 +365,7 @@
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
-                        model: "deepseek/deepseek-v3.2",
+                        model: model,
                         messages: [{ role: "user", content: prompt }],
                         temperature: 0.1
                     })
@@ -394,9 +398,7 @@
             if (!response.ok) throw new Error('Network response was not ok');
 
             const data = await response.json();
-            if (data.status !== 'ok' || !data.items) {
-                throw new Error('Invalid RSS data');
-            }
+            if (data.status !== 'ok' || !data.items) throw new Error('Invalid RSS data');
 
             for (const item of data.items) {
                 const pubDate = new Date(item.pubDate);
@@ -422,7 +424,6 @@
                 { title: 'Курс доллара на ММВБ' },
                 { title: 'Цены на нефть Brent' }
             ];
-
             return templates.map((item, i) => ({
                 id: i,
                 time: new Date(now.getTime() - i * 3600000),
@@ -446,9 +447,7 @@
                 warning.style.display = show ? 'block' : 'none';
                 warning.innerText = '⚠️ AI-классификация не работает (нет ключа или ошибка). Используются нейтральные метки.';
                 const newsHeader = document.querySelector('.news-header');
-                if (newsHeader) {
-                    newsHeader.insertAdjacentElement('afterend', warning);
-                }
+                if (newsHeader) newsHeader.insertAdjacentElement('afterend', warning);
             } else {
                 warning.style.display = show ? 'block' : 'none';
             }
@@ -463,18 +462,14 @@
             container.innerHTML = '<div style="text-align: center; color: #8b949e; padding: 20px;">⏳ Загрузка новостей...</div>';
 
             const allFetchedNews = [];
-
             for (const rssUrl of RSS_FEEDS) {
                 try {
                     const news = await fetchFromRSS(rssUrl);
                     allFetchedNews.push(...news);
-                } catch (e) {
-                    console.log(`Failed to fetch ${rssUrl}:`, e);
-                }
+                } catch (e) { console.log(`Failed to fetch ${rssUrl}:`, e); }
             }
 
             if (allFetchedNews.length === 0) {
-                console.log('Using fallback news');
                 const news = generateFallbackNews();
                 allNews = news;
                 analysisState.news.items = news;
@@ -484,18 +479,11 @@
             }
 
             allFetchedNews.sort((a, b) => b.time - a.time);
-
             const now = new Date();
-            const filteredNews = allFetchedNews.filter(n => {
-                const hoursDiff = (now - n.time) / (1000 * 60 * 60);
-                return hoursDiff <= 48;
-            });
+            const filteredNews = allFetchedNews.filter(n => (now - n.time) / 3600000 <= 48);
 
-            // Используем текущий тип инструмента
             const sentiments = await classifyNewsBatch(filteredNews, currentInstrumentType);
-            filteredNews.forEach((item, idx) => {
-                item.sentiment = sentiments[idx] || 'neutral';
-            });
+            filteredNews.forEach((item, idx) => item.sentiment = sentiments[idx] || 'neutral');
 
             allNews = filteredNews;
             analysisState.news.items = filteredNews;
@@ -504,8 +492,7 @@
         }
 
         function updateNewsScore(news) {
-            let bullishCount = 0;
-            let bearishCount = 0;
+            let bullishCount = 0, bearishCount = 0;
             news.forEach(item => {
                 if (item.sentiment === 'bullish') bullishCount++;
                 if (item.sentiment === 'bearish') bearishCount++;
@@ -518,26 +505,13 @@
         function renderNews(news) {
             const container = document.getElementById('newsList');
             document.getElementById('newsCount').textContent = news.length;
-
-            if (news.length === 0) {
+            if (!news.length) {
                 container.innerHTML = '<div style="text-align: center; color: #8b949e; padding: 20px;">Нет новостей</div>';
                 return;
             }
-
             container.innerHTML = news.map(item => {
-                const timeStr = item.time.toLocaleString('ru-RU', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-
-                const sentimentLabel = {
-                    'bullish': '📈 Бычья',
-                    'bearish': '📉 Медвежья',
-                    'neutral': '➡️ Нейтральная'
-                };
-
+                const timeStr = item.time.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+                const sentimentLabel = { 'bullish':'📈 Бычья', 'bearish':'📉 Медвежья', 'neutral':'➡️ Нейтральная' };
                 return `
                     <div class="news-item">
                         <div class="news-time">${timeStr}</div>
@@ -551,43 +525,28 @@
 
         function filterNews(type, event) {
             currentNewsFilter = type;
-
-            document.querySelectorAll('#newsBox .filter-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            if (event && event.target) {
-                event.target.classList.add('active');
-            }
+            document.querySelectorAll('#newsBox .filter-btn').forEach(btn => btn.classList.remove('active'));
+            if (event?.target) event.target.classList.add('active');
 
             let filtered = allNews;
-
-            if (type === 'bullish') {
-                filtered = allNews.filter(n => n.sentiment === 'bullish');
-            } else if (type === 'bearish') {
-                filtered = allNews.filter(n => n.sentiment === 'bearish');
-            }
-
+            if (type === 'bullish') filtered = allNews.filter(n => n.sentiment === 'bullish');
+            else if (type === 'bearish') filtered = allNews.filter(n => n.sentiment === 'bearish');
             renderNews(filtered);
         }
 
-        function refreshNews() {
-            fetchNews();
-        }
+        function refreshNews() { fetchNews(); }
 
         // ==================== 4. РЕАЛТАЙМ ГРАФИК ==================
         function updateChartLive(price) {
             if (!candleSeries || !historyData.length) return;
-
             const nowUtc = Math.floor(Date.now() / 1000);
             const mskOffset = 3 * 3600;
             const nowMsk = nowUtc + mskOffset;
-
             const tfSeconds = currentTf * 60;
             const startOfIntervalMsk = Math.floor(nowMsk / tfSeconds) * tfSeconds;
             const currentCandleTime = startOfIntervalMsk - mskOffset;
 
             let lastCandle = historyData[historyData.length - 1];
-
             if (lastCandle.time === currentCandleTime) {
                 lastCandle.close = price;
                 if (price > lastCandle.high) lastCandle.high = price;
@@ -599,25 +558,19 @@
             candleSeries.update(historyData[historyData.length - 1]);
         }
 
-        // ==================== 5. ОТРИСОВКА ГРАФИКА ==================
         function renderChart(data) {
             const cont = document.getElementById('chart');
             const loading = document.getElementById('loading');
             cont.innerHTML = '';
-            if (loading) {
-                cont.appendChild(loading);
-                loading.style.display = 'none';
-            } else {
+            if (loading) { cont.appendChild(loading); loading.style.display = 'none'; }
+            else {
                 const newLoading = document.createElement('div');
                 newLoading.id = 'loading';
                 newLoading.innerHTML = '<div class="spinner"></div> Загрузка...';
                 newLoading.style.display = 'none';
                 cont.appendChild(newLoading);
             }
-            if (chart) {
-                chart.remove();
-                chart = null;
-            }
+            if (chart) { chart.remove(); chart = null; }
             priceLines = [];
 
             chart = LightweightCharts.createChart(cont, {
@@ -641,9 +594,8 @@
             priceLines.push(mkLine(sl, '#f85149', 'SL'));
         }
 
-        // ==================== 6. UI ==================
         function updatePriceUI(q) {
-            if(!q || !q.price) return;
+            if(!q?.price) return;
             document.getElementById('currentPrice').innerText = q.price.toFixed(2);
             if(q.prev > 0) {
                 const pct = ((q.price - q.prev)/q.prev * 100);
@@ -678,27 +630,20 @@
 
         async function runAnalysis() {
             const key = document.getElementById('api_key_input').value.trim();
-            if(!key) { 
-                console.log("Анализ пропущен: нет API ключа");
-                return; 
-            }
+            const model = document.getElementById('modelSelect').value;
+            if(!key) { console.log("Анализ пропущен: нет API ключа"); return; }
             
             const tech = calcTech();
-            if (!tech) { 
-                console.log("Анализ пропущен: недостаточно данных");
-                return; 
-            }
+            if (!tech) { console.log("Анализ пропущен: недостаточно данных"); return; }
 
             document.getElementById('signal_text').innerText = "АНАЛИЗ...";
             document.getElementById('tradePlanBox').style.display = 'none';
             document.getElementById('ai_desc').style.display = 'none';
 
             let newsContext = "НОВОСТНОЙ ФОН:\n";
-            if (allNews.length > 0) {
+            if (allNews.length) {
                 allNews.forEach((n, i) => newsContext += `${i+1}. ${n.title} (${n.sentiment === 'bullish' ? 'бычья' : n.sentiment === 'bearish' ? 'медвежья' : 'нейтр.'})\n`);
-            } else {
-                newsContext += "Нет свежих новостей.\n";
-            }
+            } else newsContext += "Нет свежих новостей.\n";
 
             const prompt = `Ты профи-трейдер, анализируешь ${currentInstrumentType}.
 Цена: ${tech.price.toFixed(2)}
@@ -720,7 +665,7 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
                 const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                     method: "POST",
                     headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-                    body: JSON.stringify({ model: "deepseek/deepseek-v3.2", messages: [{role:"user", content:prompt}] })
+                    body: JSON.stringify({ model, messages: [{role:"user", content:prompt}] })
                 });
                 const data = await res.json();
                 if(data.error) throw new Error(data.error.message);
@@ -757,15 +702,10 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             const now = new Date();
             const target = new Date(now);
             target.setMinutes(16, 0, 0);
-            if (target <= now) {
-                target.setHours(target.getHours() + 1);
-            }
+            if (target <= now) target.setHours(target.getHours() + 1);
             const delay = target - now;
             console.log(`Next candle update scheduled at ${target.toLocaleTimeString()} (in ${Math.round(delay/1000)} seconds)`);
-            setTimeout(async () => {
-                await fetchCandles();
-                scheduleNextCandleUpdate();
-            }, delay);
+            setTimeout(async () => { await fetchCandles(); scheduleNextCandleUpdate(); }, delay);
         }
 
         // ==================== 9. АВТОАНАЛИЗ ==================
@@ -774,12 +714,8 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             if (autoAnalysisInterval) clearInterval(autoAnalysisInterval);
             autoAnalysisInterval = setInterval(() => {
                 const key = document.getElementById('api_key_input').value.trim();
-                if (key) {
-                    console.log('Running auto analysis at', new Date().toLocaleTimeString());
-                    runAnalysis();
-                } else {
-                    console.log('Auto analysis skipped: no API key');
-                }
+                if (key) { console.log('Running auto analysis at', new Date().toLocaleTimeString()); runAnalysis(); }
+                else console.log('Auto analysis skipped: no API key');
             }, 300000);
         }
 
@@ -788,7 +724,7 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
 
         window.onload = async () => {
             const k = localStorage.getItem('si_k');
-            if(k) document.getElementById('api_key_input').value=k;
+            if(k) document.getElementById('api_key_input').value = k;
 
             const initialTicker = document.getElementById('tickerInput').value;
             setTicker(initialTicker);
