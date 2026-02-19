@@ -5,6 +5,7 @@ import json
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        # Разбираем параметры запроса
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
         rss_url = query.get('url', [None])[0]
@@ -16,6 +17,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({'error': 'Missing url parameter'}).encode())
             return
 
+        # Загружаем и парсим RSS
         feed = feedparser.parse(rss_url)
         items = []
         for entry in feed.entries[:20]:
