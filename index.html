@@ -176,16 +176,19 @@
             <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
                 <label style="font-size: 11px;">Модель AI:</label>
                 <select id="modelSelect">
-                    <option value="deepseek/deepseek-v3.2" selected>DeepSeek V3.2</option>
+                    <option value="deepseek/deepseek-v3.2" selected>DeepSeek V3.2 (via OpenRouter)</option>
                     <option value="google/gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
                     <option value="minimax/minimax-01">Minimax M2.5</option>
                     <option value="moonshotai/kimi-v2.5">Kimi K2.5</option>
                     <option value="z-ai/glm-5">GLM 5</option>
+                    <option value="deepseek-chat">DeepSeek-V3.2 Chat (official API)</option>
+                    <option value="deepseek-reasoner">DeepSeek-V3.2 Reasoner (official API)</option>
                 </select>
 
-                <label style="font-size: 11px; margin-top: 8px; display: block;">API Key:</label>
-                <input type="password" id="api_key_input" placeholder="sk-or-..." value="">
+                <label style="font-size: 11px; margin-top: 8px; display: block;">API Key (OpenRouter или DeepSeek):</label>
+                <input type="password" id="api_key_input" placeholder="sk-or-... или ds-..." value="">
                 <button class="small" onclick="saveKey()" style="margin-top: 4px; width: 100%;">Сохранить</button>
+                <div style="font-size: 10px; color: #8b949e; margin-top: 5px;">Для официальных моделей DeepSeek используйте ключ с platform.deepseek.com</div>
             </div>
         </div>
     </div>
@@ -207,6 +210,10 @@
         let analysisState = {
             news: { score: 0, direction: 'neutral', items: [] }
         };
+
+        // Константы для идентификации приложения (OpenRouter)
+        const APP_NAME = "AI Terminal";
+        const APP_URL = window.location.origin;
 
         // ==================== ФУНКЦИИ ОПРЕДЕЛЕНИЯ ТИПА ИНСТРУМЕНТА ==================
         function getInstrumentType(ticker) {
@@ -320,9 +327,24 @@
             'https://www.vedomosti.ru/rss/articles'
         ];
 
+        // Определяем конфигурацию API в зависимости от выбранной модели
+        function getApiConfig(selectedModel) {
+            if (selectedModel === 'deepseek-chat' || selectedModel === 'deepseek-reasoner') {
+                return {
+                    url: 'https://api.deepseek.com/chat/completions',
+                    modelName: selectedModel
+                };
+            } else {
+                return {
+                    url: 'https://openrouter.ai/api/v1/chat/completions',
+                    modelName: selectedModel
+                };
+            }
+        }
+
         async function classifyNewsBatch(newsItems, instrumentType) {
             const key = document.getElementById('api_key_input').value.trim();
-            const model = document.getElementById('modelSelect').value; // выбранная модель
+            const model = document.getElementById('modelSelect').value;
             if (!key || newsItems.length === 0) {
                 showAIFallbackWarning(true);
                 return newsItems.map(() => 'neutral');
@@ -357,17 +379,26 @@
             });
             prompt += "\nОтветь строго в формате JSON: {\"sentiments\": [\"bullish\", \"neutral\", ...]}";
 
+            const config = getApiConfig(model);
+            const headers = {
+                "Authorization": `Bearer ${key}`,
+                "Content-Type": "application/json"
+            };
+            // Для OpenRouter добавляем дополнительные заголовки
+            if (config.url.includes('openrouter')) {
+                headers["HTTP-Referer"] = APP_URL;
+                headers["X-Title"] = APP_NAME;
+            }
+
             try {
-                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                const response = await fetch(config.url, {
                     method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${key}`,
-                        "Content-Type": "application/json"
-                    },
+                    headers: headers,
                     body: JSON.stringify({
-                        model: model,
+                        model: config.modelName,
                         messages: [{ role: "user", content: prompt }],
-                        temperature: 0.1
+                        temperature: 0.1,
+                        stream: false
                     })
                 });
                 const data = await response.json();
@@ -661,11 +692,26 @@ BUY: TP=Price+1.5*ATR, SL=Price-1*ATR.
 SELL: TP=Price-1.5*ATR, SL=Price+1*ATR.
 JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..." }`;
 
+            const config = getApiConfig(model);
+            const headers = {
+                "Authorization": `Bearer ${key}`,
+                "Content-Type": "application/json"
+            };
+            if (config.url.includes('openrouter')) {
+                headers["HTTP-Referer"] = APP_URL;
+                headers["X-Title"] = APP_NAME;
+            }
+
             try {
-                const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                const res = await fetch(config.url, {
                     method: "POST",
-                    headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-                    body: JSON.stringify({ model, messages: [{role:"user", content:prompt}] })
+                    headers: headers,
+                    body: JSON.stringify({
+                        model: config.modelName,
+                        messages: [{ role: "user", content: prompt }],
+                        temperature: 0.1,
+                        stream: false
+                    })
                 });
                 const data = await res.json();
                 if(data.error) throw new Error(data.error.message);
