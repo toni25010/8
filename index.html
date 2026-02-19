@@ -334,11 +334,16 @@
         }
 
         // ==================== 3. НОВОСТИ С ИНДИВИДУАЛЬНОЙ КЛАССИФИКАЦИЕЙ ==================
-        const RSS_FEEDS = [
-            'https://ru.investing.com/rss/news_25.rss',
-            'https://lenta.ru/rss/news',
-            'https://www.vedomosti.ru/rss/articles'
-        ];
+const RSS_FEEDS = [
+    // Существующие источники
+    'https://ru.investing.com/rss/news_25.rss',
+    'https://lenta.ru/rss/news',
+    'https://www.vedomosti.ru/rss/articles',
+    // Новые зарубежные источники
+    'https://feeds.reuters.com/reuters/businessNews',
+    'https://feeds.bloomberg.com/markets/news.rss',
+    'http://feeds.bbci.co.uk/news/business/rss.xml'
+];
 
         // Определяем конфигурацию API в зависимости от выбранной модели
         function getApiConfig(selectedModel) {
