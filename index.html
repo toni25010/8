@@ -391,7 +391,7 @@
             }
         }
 
-        // Улучшенная классификация новостей с гибким парсингом
+        // Исправленная функция классификации новостей с безопасными заголовками
         async function classifyNewsBatch(newsItems, instrumentType) {
             const key = document.getElementById('api_key_input').value.trim();
             const model = document.getElementById('modelSelect').value;
@@ -429,13 +429,25 @@
             });
 
             const config = getApiConfig(model);
+            if (!config || !config.url) {
+                console.error("Invalid API config for model:", model);
+                showAIFallbackWarning(true);
+                return newsItems.map(() => ({ sentiment: 'neutral', impact: 'low' }));
+            }
+
+            // Безопасное формирование заголовков
             const headers = {
                 "Authorization": `Bearer ${key}`,
                 "Content-Type": "application/json"
             };
             if (config.url.includes('openrouter')) {
-                headers["HTTP-Referer"] = APP_URL;
-                headers["X-Title"] = APP_NAME;
+                headers["HTTP-Referer"] = APP_URL || window.location.origin;
+                headers["X-Title"] = APP_NAME || "AI Terminal";
+            }
+
+            // Приведение всех значений к строке (на всякий случай)
+            for (let k in headers) {
+                headers[k] = String(headers[k]);
             }
 
             try {
@@ -449,13 +461,16 @@
                         stream: false
                     })
                 });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
                 const data = await response.json();
                 if (data.error) throw new Error(data.error.message);
                 const content = data.choices[0].message.content;
 
-                // Пытаемся распарсить JSON: сначала ищем объект с ключом results, потом массив
+                // Пытаемся распарсить JSON
                 let results = null;
-                // Попытка найти объект с ключом results
                 const objectMatch = content.match(/\{[\s\S]*"results"[\s\S]*\}/);
                 if (objectMatch) {
                     try {
@@ -465,7 +480,6 @@
                         }
                     } catch (e) { /* не удалось */ }
                 }
-                // Если не нашли объект, ищем массив
                 if (!results) {
                     const arrayMatch = content.match(/\[[\s\S]*\]/);
                     if (arrayMatch) {
@@ -851,6 +865,10 @@ ${newsContext}
                 headers["HTTP-Referer"] = APP_URL;
                 headers["X-Title"] = APP_NAME;
             }
+            // Приведение к строке
+            for (let k in headers) {
+                headers[k] = String(headers[k]);
+            }
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -932,7 +950,6 @@ ${newsContext}
                 oscillator.start();
                 oscillator.stop(audioCtx.currentTime + 0.2); // 200 мс
 
-                // Если контекст был suspended, запускаем его
                 if (audioCtx.state === 'suspended') {
                     audioCtx.resume();
                 }
@@ -1027,7 +1044,6 @@ ${newsContext}
                 }
 
                 const now = Date.now();
-                // Защита от Infinity при первом запуске
                 if (lastAnalysisPrice === 0) {
                     lastAnalysisPrice = currentPrice;
                 }
