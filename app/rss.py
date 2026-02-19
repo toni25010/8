@@ -4,7 +4,6 @@ import feedparser
 import json
 
 class handler(BaseHTTPRequestHandler):
-
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
