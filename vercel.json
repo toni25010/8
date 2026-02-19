@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/rss.py": {
+      "runtime": "python3.9"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/rss", "destination": "/api/rss.py" }
+  ]
+}
