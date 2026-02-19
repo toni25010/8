@@ -728,28 +728,35 @@ const RSS_FEEDS = [
         }
 
         // ==================== 8. ОСНОВНОЙ АНАЛИЗ (AI) ==================
-        async function runAnalysis() {
-            const key = document.getElementById('api_key_input').value.trim();
-            const model = document.getElementById('modelSelect').value;
-            if(!key) { console.log("Анализ пропущен: нет API ключа"); return; }
-            
-            const tech = calcTech();
-            if (!tech) { console.log("Анализ пропущен: недостаточно данных"); return; }
+async function runAnalysis() {
+    const key = document.getElementById('api_key_input').value.trim();
+    const model = document.getElementById('modelSelect').value;
+    if(!key) { 
+        console.log("Анализ пропущен: нет API ключа");
+        return; 
+    }
+    
+    const tech = calcTech();
+    if (!tech) { 
+        console.log("Анализ пропущен: недостаточно данных");
+        return; 
+    }
 
-            // Сохраняем время и цену для автоанализа
-            lastAnalysisTime = Date.now();
-            lastAnalysisPrice = tech.price;
+    // Сохраняем время и цену для автоанализа
+    lastAnalysisTime = Date.now();
+    lastAnalysisPrice = tech.price;
 
-            document.getElementById('signal_text').innerText = "АНАЛИЗ...";
-            document.getElementById('tradePlanBox').style.display = 'none';
-            document.getElementById('ai_desc').style.display = 'none';
+    // Показываем индикатор анализа
+    document.getElementById('signal_text').innerText = "АНАЛИЗ...";
+    document.getElementById('tradePlanBox').style.display = 'none';
+    document.getElementById('ai_desc').style.display = 'none';
 
-            let newsContext = "НОВОСТНОЙ ФОН:\n";
-            if (allNews.length) {
-                allNews.forEach((n, i) => newsContext += `${i+1}. ${n.title} (${n.sentiment === 'bullish' ? 'бычья' : n.sentiment === 'bearish' ? 'медвежья' : 'нейтр.'})\n`);
-            } else newsContext += "Нет свежих новостей.\n";
+    let newsContext = "НОВОСТНОЙ ФОН:\n";
+    if (allNews.length) {
+        allNews.forEach((n, i) => newsContext += `${i+1}. ${n.title} (${n.sentiment === 'bullish' ? 'бычья' : n.sentiment === 'bearish' ? 'медвежья' : 'нейтр.'})\n`);
+    } else newsContext += "Нет свежих новостей.\n";
 
-            const prompt = `Ты профессиональный трейдер, специализирующийся на инструменте ${currentInstrumentType}. 
+    const prompt = `Ты профессиональный трейдер, специализирующийся на инструменте ${currentInstrumentType}. 
 ТЕХНИЧЕСКАЯ КАРТИНА:
 - Цена: ${tech.price.toFixed(2)}
 - RSI (14): ${tech.rsi.toFixed(1)} ${tech.rsi > 70 ? '(перекупленность)' : tech.rsi < 30 ? '(перепроданность)' : ''}
@@ -777,44 +784,98 @@ ${newsContext}
 Ответь строго в формате JSON:
 { "signal": "ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ", "confidence": 85, "entry": 0, "tp": 0, "sl": 0, "reason": "Краткое обоснование (до 150 символов)" }`;
 
-            const config = getApiConfig(model);
-            const headers = {
-                "Authorization": `Bearer ${key}`,
-                "Content-Type": "application/json"
-            };
-            if (config.url.includes('openrouter')) {
-                headers["HTTP-Referer"] = APP_URL;
-                headers["X-Title"] = APP_NAME;
-            }
+    const config = getApiConfig(model);
+    const headers = {
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json"
+    };
+    if (config.url.includes('openrouter')) {
+        headers["HTTP-Referer"] = APP_URL;
+        headers["X-Title"] = APP_NAME;
+    }
 
-            try {
-                const res = await fetch(config.url, {
-                    method: "POST",
-                    headers: headers,
-                    body: JSON.stringify({
-                        model: config.modelName,
-                        messages: [{ role: "user", content: prompt }],
-                        temperature: 0.1,
-                        stream: false
-                    })
-                });
-                const data = await res.json();
-                if(data.error) throw new Error(data.error.message);
-                const json = parse(data.choices[0].message.content);
-                // Проверяем, нужно ли обновлять UI
-                if (shouldUpdateUI(json, tech.price)) {
-                    updateUI(json, tech.price);
-                } else {
-                    console.log('Сигнал не изменился, UI не обновлён');
-                }
-            } catch(e) {
-                document.getElementById('signal_text').innerText = "ОШИБКА";
-                document.getElementById('ai_desc').innerText = e.message;
-                document.getElementById('ai_desc').style.display = 'block';
-            }
+    // Создаём контроллер для таймаута (15 секунд)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+        const res = await fetch(config.url, {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({
+                model: config.modelName,
+                messages: [{ role: "user", content: prompt }],
+                temperature: 0.1,
+                stream: false
+            }),
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId); // таймаут больше не нужен
+
+        if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error(`HTTP ${res.status}: ${errorText}`);
         }
 
-        function parse(s) { try { return JSON.parse(s.match(/\{[\s\S]*\}/)[0]); } catch { return {signal:"ДЕРЖАТЬ", confidence:0, reason:"err", entry:0,tp:0,sl:0}; } }
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        
+        const json = parse(data.choices[0].message.content);
+        // Проверяем, нужно ли обновлять UI
+        if (shouldUpdateUI(json, tech.price)) {
+            playAlertSound(); // 🔔 звуковой сигнал при смене сигнала
+            updateUI(json, tech.price);
+        } else {
+            console.log('Сигнал не изменился, UI не обновлён');
+            // Восстанавливаем предыдущий сигнал в интерфейсе (убираем "АНАЛИЗ...")
+            restorePreviousSignal();
+        }
+    } catch (e) {
+        clearTimeout(timeoutId);
+        console.error("Ошибка анализа:", e);
+        
+        let errorMessage = e.message;
+        if (e.name === 'AbortError') {
+            errorMessage = 'Превышено время ожидания ответа от AI (15 сек)';
+        }
+        
+        // Показываем ошибку
+        document.getElementById('signal_text').innerText = "ОШИБКА";
+        document.getElementById('ai_desc').innerText = errorMessage;
+        document.getElementById('ai_desc').style.display = 'block';
+        
+        // Возвращаем предыдущий сигнал (если он был)
+        restorePreviousSignal();
+    }
+}
+
+// Вспомогательная функция для восстановления предыдущего сигнала
+function restorePreviousSignal() {
+    if (lastSignal && lastSignal.signal) {
+        const ui = document.getElementById('signal_ui');
+        ui.className = "signal-display " + (lastSignal.signal==='ПОКУПКА'?'buy':lastSignal.signal==='ПРОДАЖА'?'sell':'hold');
+        document.getElementById('signal_text').innerText = lastSignal.signal;
+        document.getElementById('signal_confidence').innerText = `Уверенность: ${lastSignal.confidence}%`;
+        document.getElementById('ai_desc').innerText = lastSignal.reason;
+        // План может отсутствовать, если сигнал ДЕРЖАТЬ
+        if(lastSignal.entry && lastSignal.tp && lastSignal.sl && !isNaN(lastSignal.entry)) {
+            document.getElementById('tradePlanBox').style.display='block';
+            document.getElementById('aiEntry').innerText = lastSignal.entry.toFixed(2);
+            document.getElementById('aiTP').innerText = lastSignal.tp.toFixed(2);
+            document.getElementById('aiSL').innerText = lastSignal.sl.toFixed(2);
+            drawPlan(lastSignal.entry, lastSignal.tp, lastSignal.sl);
+        } else {
+            document.getElementById('tradePlanBox').style.display = 'none';
+        }
+    } else {
+        // Если предыдущего сигнала нет, просто ставим "ОЖИДАНИЕ"
+        document.getElementById('signal_text').innerText = "ОЖИДАНИЕ";
+        document.getElementById('signal_confidence').innerText = '';
+        document.getElementById('ai_desc').style.display = 'none';
+        document.getElementById('tradePlanBox').style.display = 'none';
+    }
+}
 
         // Функция сравнения сигналов
         function shouldUpdateUI(newSignal, currentPrice) {
