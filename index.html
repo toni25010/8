@@ -372,7 +372,7 @@
             }
         }
 
-        // ==================== 3. НОВОСТИ С AI-КЛАССИФИКАЦИЕЙ (SENTIMENT + IMPACT) ==================
+        // ==================== 3. НОВОСТИ ЧЕРЕЗ СОБСТВЕННЫЙ API ==================
         const RSS_FEEDS = [
             // Российские
             'https://lenta.ru/rss/news',
@@ -467,42 +467,42 @@
             }
         }
 
+        // ==================== ИЗМЕНЁННАЯ ФУНКЦИЯ ЗАГРУЗКИ RSS ==================
         async function fetchFromRSS(rssUrl) {
-    const news = [];
-    const encodedUrl = encodeURIComponent(rssUrl);
-    // Используем свою функцию на Vercel
-    const apiUrl = `/api/rss?url=${encodedUrl}`;
+            const news = [];
+            const encodedUrl = encodeURIComponent(rssUrl);
+            const apiUrl = `/api/rss?url=${encodedUrl}`; // обращаемся к своему серверу
 
-    try {
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-            console.warn(`RSS fetch failed for ${rssUrl}: status ${response.status}`);
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    console.warn(`RSS fetch failed for ${rssUrl}: status ${response.status}`);
+                    return news;
+                }
+                const data = await response.json();
+                if (!data.items) {
+                    console.warn(`Invalid RSS data from ${rssUrl}`);
+                    return news;
+                }
+
+                for (const item of data.items) {
+                    const pubDate = new Date(item.pubDate);
+                    const title = item.title || '';
+                    const description = item.description || '';
+
+                    news.push({
+                        id: Math.random().toString(36).substr(2, 9),
+                        time: pubDate,
+                        title: title.substring(0, 150),
+                        text: description.replace(/<[^>]*>/g, '').substring(0, 200),
+                        link: item.link
+                    });
+                }
+            } catch (e) {
+                console.warn(`Error fetching ${rssUrl}:`, e.message);
+            }
             return news;
         }
-        const data = await response.json();
-        if (!data.items) {
-            console.warn(`Invalid RSS data from ${rssUrl}`);
-            return news;
-        }
-
-        for (const item of data.items) {
-            const pubDate = new Date(item.pubDate);
-            const title = item.title || '';
-            const description = item.description || '';
-
-            news.push({
-                id: Math.random().toString(36).substr(2, 9),
-                time: pubDate,
-                title: title.substring(0, 150),
-                text: description.replace(/<[^>]*>/g, '').substring(0, 200),
-                link: item.link
-            });
-        }
-    } catch (e) {
-        console.warn(`Error fetching ${rssUrl}:`, e.message);
-    }
-    return news;
-}
 
         function generateFallbackNews() {
             const now = new Date();
@@ -615,7 +615,6 @@
                     'medium': '🟡 среднее',
                     'low': '🔵 низкое'
                 };
-                // Цвет левой полосы зависит от impact
                 const borderColor = item.impact === 'high' ? '#f85149' : (item.impact === 'medium' ? '#d29922' : '#3b82f6');
                 return `
                     <div class="news-item" style="border-left-color: ${borderColor};">
@@ -817,8 +816,10 @@ ${newsContext}
   * Для ПРОДАЖА: entry = текущая цена, tp = entry - 1.5*ATR, sl = entry + 1*ATR.
 - Если сигнал ДЕРЖАТЬ, entry/tp/sl оставь 0.
 
+В поле "reason" напиши краткое обоснование (до 150 символов), а затем, если есть ярко выраженная новость, которая сейчас сильнее всего влияет на рынок, добавь после обоснования строку с тремя дефисами "---" и отдельную строку с этой новостью (например, "---\nСамый значимый фактор: [заголовок новости]"). Если такой новости нет, пиши только обоснование.
+
 Ответь строго в формате JSON:
-{ "signal": "ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ", "confidence": 85, "entry": 0, "tp": 0, "sl": 0, "reason": "Краткое обоснование (до 150 символов)" }`;
+{ "signal": "ПОКУПКА/ПРОДАЖА/ДЕРЖАТЬ", "confidence": 85, "entry": 0, "tp": 0, "sl": 0, "reason": "текст с --- и новостью" }`;
 
             const config = getApiConfig(model);
             const headers = {
