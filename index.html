@@ -265,7 +265,6 @@
         const MIN_ANALYSIS_INTERVAL = 2 * 60 * 1000;
 
         let lastSignal = { signal: "ДЕРЖАТЬ", confidence: 0, entry: 0, tp: 0, sl: 0, reason: "" };
-        const ALERT_SOUND_URL = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3';
 
         // ==================== ФУНКЦИИ ОПРЕДЕЛЕНИЯ ТИПА ИНСТРУМЕНТА ==================
         function getInstrumentType(ticker) {
@@ -392,18 +391,15 @@
             }
         }
 
-        // Улучшенная классификация новостей с надёжным промптом
+        // Улучшенная классификация новостей с гибким парсингом
         async function classifyNewsBatch(newsItems, instrumentType) {
             const key = document.getElementById('api_key_input').value.trim();
             const model = document.getElementById('modelSelect').value;
-            // Если нет ключа, сразу возвращаем нейтральные
             if (!key) {
                 showAIFallbackWarning(true);
                 return newsItems.map(() => ({ sentiment: 'neutral', impact: 'low' }));
             }
-            if (newsItems.length === 0) {
-                return [];
-            }
+            if (newsItems.length === 0) return [];
 
             let instruction = '';
             if (instrumentType === 'Si') {
@@ -427,7 +423,7 @@
                 instruction = `Для каждой новости определи sentiment (bullish/bearish/neutral) и impact (high/medium/low).`;
             }
 
-            let prompt = instruction + "\n\nВерни только JSON-массив в формате:\n[{\"sentiment\": \"bullish\", \"impact\": \"high\"}, ...]\nБез пояснений, только JSON.\n\nНовости:\n";
+            let prompt = instruction + "\n\nВерни JSON-массив в формате [{\"sentiment\": \"bullish\", \"impact\": \"high\"}, ...] или объект {\"results\": [...]}. Без пояснений.\n\nНовости:\n";
             newsItems.forEach((item, idx) => {
                 prompt += `${idx + 1}. Заголовок: ${item.title || ''}\n   Текст: ${item.text || ''}\n`;
             });
@@ -456,11 +452,31 @@
                 const data = await response.json();
                 if (data.error) throw new Error(data.error.message);
                 const content = data.choices[0].message.content;
-                // Ищем JSON в ответе (бывает, что модель добавляет пояснения)
-                const jsonMatch = content.match(/\[[\s\S]*\]/);
-                if (!jsonMatch) throw new Error("No JSON array in response");
-                const results = JSON.parse(jsonMatch[0]);
-                if (Array.isArray(results) && results.length === newsItems.length) {
+
+                // Пытаемся распарсить JSON: сначала ищем объект с ключом results, потом массив
+                let results = null;
+                // Попытка найти объект с ключом results
+                const objectMatch = content.match(/\{[\s\S]*"results"[\s\S]*\}/);
+                if (objectMatch) {
+                    try {
+                        const parsed = JSON.parse(objectMatch[0]);
+                        if (parsed.results && Array.isArray(parsed.results) && parsed.results.length === newsItems.length) {
+                            results = parsed.results;
+                        }
+                    } catch (e) { /* не удалось */ }
+                }
+                // Если не нашли объект, ищем массив
+                if (!results) {
+                    const arrayMatch = content.match(/\[[\s\S]*\]/);
+                    if (arrayMatch) {
+                        const parsed = JSON.parse(arrayMatch[0]);
+                        if (Array.isArray(parsed) && parsed.length === newsItems.length) {
+                            results = parsed;
+                        }
+                    }
+                }
+
+                if (results) {
                     hideAIFallbackWarning();
                     return results;
                 } else {
@@ -899,12 +915,29 @@ ${newsContext}
             return false;
         }
 
+        // Генерация звука через Web Audio API
         function playAlertSound() {
             try {
-                const audio = new Audio(ALERT_SOUND_URL);
-                audio.play().catch(e => console.log("Ошибка воспроизведения звука (возможно, нужно взаимодействие с пользователем)", e));
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.type = 'sine';
+                oscillator.frequency.value = 523.25; // нота До
+                gainNode.gain.value = 0.1;
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.2); // 200 мс
+
+                // Если контекст был suspended, запускаем его
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
             } catch (e) {
-                console.error("Ошибка при создании Audio объекта", e);
+                console.error("Ошибка генерации звука:", e);
             }
         }
 
@@ -994,6 +1027,10 @@ ${newsContext}
                 }
 
                 const now = Date.now();
+                // Защита от Infinity при первом запуске
+                if (lastAnalysisPrice === 0) {
+                    lastAnalysisPrice = currentPrice;
+                }
                 const priceChangePercent = Math.abs((currentPrice - lastAnalysisPrice) / lastAnalysisPrice * 100);
                 const timeSinceLastAnalysis = now - lastAnalysisTime;
 
