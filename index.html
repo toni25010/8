@@ -159,7 +159,7 @@
     </div>
 
     <script>
-        // ================= ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =================
+                // ================= ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =================
         const MOEX_BASE = "https://iss.moex.com/iss/engines/futures/markets/forts";
         const RSS_FEEDS = ['https://lenta.ru/rss/news', 'https://www.vedomosti.ru/rss/articles'];
 
@@ -168,13 +168,23 @@
         let historyData = [], allNews = [], currentPriceGlobal = 0;
         let analysisState = { newsScore: 0 };
         
-        // Память AI для устранения мерцания
         let lastSignal = { signal: 'ОЖИДАНИЕ', confidence: 0, tp: 0, sl: 0, time: 0 };
         let autoAnalysisInterval = null;
 
         const antiCache = () => `_=${Date.now()}`;
 
+        // 👇 ВОТ ЭТУ ФУНКЦИЮ НУЖНО ВЕРНУТЬ 👇
+        function getInstrumentType(ticker) {
+            const u = ticker.toUpperCase();
+            if (u.includes('SI')) return 'Si';
+            if (u.includes('SR') || u.includes('SBER')) return 'SBER';
+            if (u.includes('BR')) return 'BR';
+            return 'unknown';
+        }
+        // 👆 👆 👆
+
         // ================= ПОЛУЧЕНИЕ ДАННЫХ MOEX =================
+
         async function fetchQuotes() {
             try {
                 const res = await fetch(`${MOEX_BASE}/securities/${currentTicker}.json?iss.only=marketdata&${antiCache()}`);
