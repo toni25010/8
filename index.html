@@ -468,40 +468,41 @@
         }
 
         async function fetchFromRSS(rssUrl) {
-            const news = [];
-            const encodedUrl = encodeURIComponent(rssUrl);
-            const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodedUrl}`;
+    const news = [];
+    const encodedUrl = encodeURIComponent(rssUrl);
+    // Используем свою функцию на Vercel
+    const apiUrl = `/api/rss?url=${encodedUrl}`;
 
-            try {
-                const response = await fetch(apiUrl);
-                if (!response.ok) {
-                    console.warn(`RSS fetch failed for ${rssUrl}: status ${response.status}`);
-                    return news;
-                }
-                const data = await response.json();
-                if (data.status !== 'ok' || !data.items) {
-                    console.warn(`Invalid RSS data from ${rssUrl}`);
-                    return news;
-                }
-
-                for (const item of data.items) {
-                    const pubDate = new Date(item.pubDate);
-                    const title = item.title || '';
-                    const description = item.description || '';
-
-                    news.push({
-                        id: Math.random().toString(36).substr(2, 9),
-                        time: pubDate,
-                        title: title.substring(0, 150),
-                        text: description.replace(/<[^>]*>/g, '').substring(0, 200),
-                        link: item.link
-                    });
-                }
-            } catch (e) {
-                console.warn(`Error fetching ${rssUrl}:`, e.message);
-            }
+    try {
+        const response = await fetch(apiUrl);
+        if (!response.ok) {
+            console.warn(`RSS fetch failed for ${rssUrl}: status ${response.status}`);
             return news;
         }
+        const data = await response.json();
+        if (!data.items) {
+            console.warn(`Invalid RSS data from ${rssUrl}`);
+            return news;
+        }
+
+        for (const item of data.items) {
+            const pubDate = new Date(item.pubDate);
+            const title = item.title || '';
+            const description = item.description || '';
+
+            news.push({
+                id: Math.random().toString(36).substr(2, 9),
+                time: pubDate,
+                title: title.substring(0, 150),
+                text: description.replace(/<[^>]*>/g, '').substring(0, 200),
+                link: item.link
+            });
+        }
+    } catch (e) {
+        console.warn(`Error fetching ${rssUrl}:`, e.message);
+    }
+    return news;
+}
 
         function generateFallbackNews() {
             const now = new Date();
