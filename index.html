@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Si AI Terminal | Новости России (AI классификация)</title>
+    <title>AI Terminal | Мультиинструмент</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; }
@@ -58,21 +58,53 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .error-msg { color: var(--sell); font-size: 12px; text-align: center; margin-top: 10px; }
 
-        .ticker-controls { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
-        .ticker-input { flex: 2; min-width: 150px; }
-        .ticker-btn { flex: 0 0 auto; background: #21262d; color: white; border: 1px solid var(--border); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 12px; }
-        .ticker-btn.active { background: var(--accent); border-color: var(--accent); }
+        .ticker-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            align-items: center;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 4px;
+        }
+        .ticker-input {
+            flex: 0 0 150px;
+            min-width: 120px;
+        }
+        .ticker-btn {
+            flex: 0 0 auto;
+            background: #21262d;
+            color: white;
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .ticker-btn:hover {
+            background: #2d333b;
+        }
+
+        .instrument-badge {
+            display: inline-block;
+            background: var(--accent);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            margin-left: 8px;
+        }
 
         @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
-    <h2>Si AI Terminal | Новости России (AI классификация)</h2>
+    <h2>AI Terminal | Мультиинструмент</h2>
 
     <div class="grid">
         <!-- LEFT -->
         <div class="card">
-            <!-- Блок выбора тикера -->
             <div class="ticker-controls">
                 <input type="text" id="tickerInput" class="ticker-input" placeholder="Код контракта, например SiH6" value="SiH6">
                 <button class="ticker-btn" onclick="setTicker('SiH6')">Si</button>
@@ -91,13 +123,13 @@
             <!-- НОВОСТНОЙ БЛОК -->
             <div class="news-box" id="newsBox">
                 <div class="news-header">
-                    <span style="font-weight: 600; color: #3b82f6;">Новости (Investing, Лента, Ведомости)</span>
+                    <span style="font-weight: 600; color: #3b82f6;">Новости <span id="instrumentNewsLabel">для Si</span></span>
                     <span id="newsCount">0</span>
                 </div>
                 <div class="news-filter">
                     <button class="filter-btn active" onclick="filterNews('all', event)">Все</button>
-                    <button class="filter-btn" onclick="filterNews('bullish', event)">Бычьи для Si</button>
-                    <button class="filter-btn" onclick="filterNews('bearish', event)">Медвежьи для Si</button>
+                    <button class="filter-btn" onclick="filterNews('bullish', event)">Бычьи</button>
+                    <button class="filter-btn" onclick="filterNews('bearish', event)">Медвежьи</button>
                     <button class="filter-btn" onclick="refreshNews()">🔄</button>
                 </div>
                 <div id="newsList">Загрузка...</div>
@@ -153,28 +185,49 @@
         // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==================
         const MOEX_BASE = "https://iss.moex.com/iss/engines/futures/markets/forts";
         
-        let currentTicker = "SiH6";   // по умолчанию
+        let currentTicker = "SiH6";
+        let currentInstrumentType = 'Si'; // по умолчанию
         let chart = null;
         let candleSeries = null;
         let priceLines = [];
         let historyData = [];
-        let allNews = [];            // все загруженные новости
+        let allNews = [];
         let currentNewsFilter = 'all';
-        const currentTf = 60;         // только 1H
+        const currentTf = 60;
 
-        // Состояние новостного анализа
         let analysisState = {
             news: { score: 0, direction: 'neutral', items: [] }
         };
 
-        // ==================== 1. ФУНКЦИИ УПРАВЛЕНИЯ ТИКЕРОМ ==================
+        // ==================== ФУНКЦИИ ОПРЕДЕЛЕНИЯ ТИПА ИНСТРУМЕНТА ==================
+        function getInstrumentType(ticker) {
+            if (ticker.toUpperCase().includes('SI')) return 'Si';
+            if (ticker.toUpperCase().includes('SBRF') || ticker.toUpperCase().includes('SBER')) return 'SBER';
+            if (ticker.toUpperCase().includes('BR')) return 'BR';
+            return 'unknown';
+        }
+
+        function updateInstrumentLabel() {
+            const label = document.getElementById('instrumentNewsLabel');
+            if (label) {
+                label.innerText = `для ${currentInstrumentType}`;
+            }
+        }
+
+        // ==================== 1. УПРАВЛЕНИЕ ТИКЕРОМ ==================
+        const antiCache = () => `_=${Date.now()}`;
+
         function setTicker(ticker) {
             currentTicker = ticker;
+            currentInstrumentType = getInstrumentType(ticker);
             document.getElementById('tickerInput').value = ticker;
             document.getElementById('tickerDisplay').innerText = ticker;
+            updateInstrumentLabel();
+
             // Перезагружаем данные
             fetchQuotes();
             fetchCandles();
+            fetchNews(); // новости с новым типом
         }
 
         function applyTicker() {
@@ -185,8 +238,6 @@
         }
 
         // ==================== 2. ДАННЫЕ MOEX ==================
-        const antiCache = () => `_=${Date.now()}`;
-
         async function fetchQuotes() {
             if(!currentTicker) return;
             const url = `${MOEX_BASE}/securities/${currentTicker}.json?iss.only=marketdata&${antiCache()}`;
@@ -195,7 +246,12 @@
                 const data = await res.json();
                 const cols = data.marketdata.columns;
                 const row = data.marketdata.data[0];
-                if(!row) return;
+                if(!row) {
+                    console.warn("No quote data for", currentTicker);
+                    document.getElementById('currentPrice').innerText = '--';
+                    document.getElementById('changePercent').innerText = '--';
+                    return;
+                }
                 
                 const idx = { last: cols.indexOf('LAST'), chg: cols.indexOf('CHANGE'), time: cols.indexOf('SYSTIME'), prev: cols.indexOf('PREVPRICE') };
                 
@@ -212,7 +268,6 @@
             } catch(e) { console.error("Quote error", e); }
         }
 
-        // Преобразование времени MOEX (MSK) в UTC timestamp
         function parseMoexTime(dateStr) {
             const [datePart, timePart] = dateStr.split(' ');
             const [year, month, day] = datePart.split('-').map(Number);
@@ -254,30 +309,45 @@
             }
         }
 
-        // ==================== 3. НОВОСТИ (через AI классификацию) ==================
+        // ==================== 3. НОВОСТИ С ИНДИВИДУАЛЬНОЙ КЛАССИФИКАЦИЕЙ ==================
         const RSS_FEEDS = [
             'https://ru.investing.com/rss/news_25.rss',
             'https://lenta.ru/rss/news',
             'https://www.vedomosti.ru/rss/articles'
         ];
 
-        // Пакетная классификация через OpenRouter
-        async function classifyNewsBatch(newsItems) {
+        async function classifyNewsBatch(newsItems, instrumentType) {
             const key = document.getElementById('api_key_input').value.trim();
             if (!key || newsItems.length === 0) {
                 showAIFallbackWarning(true);
                 return newsItems.map(() => 'neutral');
             }
 
-            let prompt = `Ты аналитик, специализирующийся на влиянии новостей на курс рубля (фьючерс Si). 
+            // Настраиваем промпт в зависимости от типа инструмента
+            let instruction = '';
+            if (instrumentType === 'Si') {
+                instruction = `Ты аналитик, специализирующийся на влиянии новостей на курс рубля (фьючерс Si). 
 Каждую новость классифицируй как:
 - "bullish" — рубль слабеет (растёт доллар), если новость негативна для РФ (санкции, война, падение нефти, геополитика, кризис)
 - "bearish" — рубль укрепляется (падает доллар), если новость позитивна для РФ (рост нефти, переговоры, успехи экономики)
-- "neutral" — только если новость вообще не связана с Россией, экономикой, сырьём или валютой.
+- "neutral" — только если новость вообще не связана с Россией, экономикой, сырьём или валютой.`;
+            } else if (instrumentType === 'SBER') {
+                instruction = `Ты аналитик, специализирующийся на влиянии новостей на акции Сбера (Sberbank). 
+Каждую новость классифицируй как:
+- "bullish" — позитивно для акций Сбера (рост прибыли, дивиденды, успехи банка, снижение ставки, позитивные макроэкономические данные)
+- "bearish" — негативно для акций Сбера (санкции против банков, проблемы сектора, повышение ставки, убытки)
+- "neutral" — если новость не связана с банковским сектором или не оказывает прямого влияния.`;
+            } else if (instrumentType === 'BR') {
+                instruction = `Ты аналитик, специализирующийся на влиянии новостей на цену нефти Brent. 
+Каждую новость классифицируй как:
+- "bullish" — ведёт к росту цен на нефть (сокращение добычи, геополитика в регионах добычи, падение запасов, позитивный спрос)
+- "bearish" — ведёт к падению цен на нефть (увеличение добычи, рост запасов, снижение спроса, торговые войны)
+- "neutral" — если новость не связана с нефтяным рынком.`;
+            } else {
+                instruction = `Классифицируй новости как "bullish", "bearish" или "neutral" по твоему усмотрению.`;
+            }
 
-Старайся избегать "neutral", если есть хоть какая-то связь с Россией или мировой экономикой.
-
-Список новостей (заголовок + краткое содержание):\n`;
+            let prompt = instruction + "\n\nСтарайся избегать 'neutral', если есть хоть какая-то связь с предметом анализа.\n\nСписок новостей (заголовок + краткое содержание):\n";
             newsItems.forEach((item, idx) => {
                 prompt += `${idx + 1}. Заголовок: ${item.title || ''}\n   Текст: ${item.text || ''}\n`;
             });
@@ -324,7 +394,6 @@
             if (!response.ok) throw new Error('Network response was not ok');
 
             const data = await response.json();
-
             if (data.status !== 'ok' || !data.items) {
                 throw new Error('Invalid RSS data');
             }
@@ -422,7 +491,8 @@
                 return hoursDiff <= 48;
             });
 
-            const sentiments = await classifyNewsBatch(filteredNews);
+            // Используем текущий тип инструмента
+            const sentiments = await classifyNewsBatch(filteredNews, currentInstrumentType);
             filteredNews.forEach((item, idx) => {
                 item.sentiment = sentiments[idx] || 'neutral';
             });
@@ -463,8 +533,8 @@
                 });
 
                 const sentimentLabel = {
-                    'bullish': '📈 Бычья для Si',
-                    'bearish': '📉 Медвежья для Si',
+                    'bullish': '📈 Бычья',
+                    'bearish': '📉 Медвежья',
                     'neutral': '➡️ Нейтральная'
                 };
 
@@ -509,7 +579,7 @@
             if (!candleSeries || !historyData.length) return;
 
             const nowUtc = Math.floor(Date.now() / 1000);
-            const mskOffset = 3 * 3600; // Москва UTC+3
+            const mskOffset = 3 * 3600;
             const nowMsk = nowUtc + mskOffset;
 
             const tfSeconds = currentTf * 60;
@@ -630,7 +700,7 @@
                 newsContext += "Нет свежих новостей.\n";
             }
 
-            const prompt = `Ты профи-трейдер Si.
+            const prompt = `Ты профи-трейдер, анализируешь ${currentInstrumentType}.
 Цена: ${tech.price.toFixed(2)}
 RSI: ${tech.rsi.toFixed(1)}
 MACD: ${tech.macd.toFixed(2)}
@@ -720,7 +790,6 @@ JSON: { "signal":"...", "confidence":80, "entry":0, "tp":0, "sl":0, "reason":"..
             const k = localStorage.getItem('si_k');
             if(k) document.getElementById('api_key_input').value=k;
 
-            // Устанавливаем начальный тикер из поля ввода
             const initialTicker = document.getElementById('tickerInput').value;
             setTicker(initialTicker);
 
