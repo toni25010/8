@@ -6,6 +6,7 @@
     <title>AI Terminal | Мультиинструмент</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
+        /* ... (стили без изменений, как в предыдущей полной версии) ... */
         :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 12px; min-height: 100vh; }
@@ -215,18 +216,16 @@
             news: { score: 0, direction: 'neutral', items: [] }
         };
 
-        // Константы для идентификации приложения (OpenRouter)
         const APP_NAME = "AI Terminal";
-        const APP_URL = window.location.origin; // автоматически подставит ваш домен на Vercel
+        const APP_URL = window.location.origin;
 
-        // Переменные для стабилизации автоанализа
         let lastAnalysisTime = 0;
         let lastAnalysisPrice = 0;
-        const MIN_PRICE_CHANGE_PERCENT = 0.2; // 0.2%
-        const MIN_ANALYSIS_INTERVAL = 2 * 60 * 1000; // 2 минуты
+        const MIN_PRICE_CHANGE_PERCENT = 0.2;
+        const MIN_ANALYSIS_INTERVAL = 2 * 60 * 1000;
 
-        // Храним последний сигнал для сравнения
         let lastSignal = { signal: "ДЕРЖАТЬ", confidence: 0, entry: 0, tp: 0, sl: 0, reason: "" };
+        const ALERT_SOUND_URL = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3';
 
         // ==================== ФУНКЦИИ ОПРЕДЕЛЕНИЯ ТИПА ИНСТРУМЕНТА ==================
         function getInstrumentType(ticker) {
@@ -254,7 +253,7 @@
 
             fetchQuotes();
             fetchCandles();
-            fetchNews(); // новости с новым типом
+            fetchNews();
         }
 
         function applyTicker() {
@@ -333,30 +332,24 @@
             }
         }
 
-        // ==================== 3. НОВОСТИ С ИНДИВИДУАЛЬНОЙ КЛАССИФИКАЦИЕЙ ==================
-const RSS_FEEDS = [
-    // Существующие источники
-    'https://ru.investing.com/rss/news_25.rss',
-    'https://lenta.ru/rss/news',
-    'https://www.vedomosti.ru/rss/articles',
-    // Новые зарубежные источники
-    'https://feeds.reuters.com/reuters/businessNews',
-    'https://feeds.bloomberg.com/markets/news.rss',
-    'http://feeds.bbci.co.uk/news/business/rss.xml'
-];
+        // ==================== 3. НОВОСТИ (ПРОВЕРЕННЫЕ ИСТОЧНИКИ) ==================
+        const RSS_FEEDS = [
+            // Российские
+            'https://lenta.ru/rss/news',
+            'https://www.vedomosti.ru/rss/articles',
+            'https://ria.ru/export/rss2/economy/index.xml',
+            // Зарубежные (работают через rss2json)
+            'https://feeds.bbci.co.uk/news/business/rss.xml',
+            'https://www.ft.com/rss/world',
+            'https://www.economist.com/feeds/print-sections/77/business.xml'
+        ];
 
         // Определяем конфигурацию API в зависимости от выбранной модели
         function getApiConfig(selectedModel) {
             if (selectedModel === 'deepseek-chat' || selectedModel === 'deepseek-reasoner') {
-                return {
-                    url: 'https://api.deepseek.com/chat/completions',
-                    modelName: selectedModel
-                };
+                return { url: 'https://api.deepseek.com/chat/completions', modelName: selectedModel };
             } else {
-                return {
-                    url: 'https://openrouter.ai/api/v1/chat/completions',
-                    modelName: selectedModel
-                };
+                return { url: 'https://openrouter.ai/api/v1/chat/completions', modelName: selectedModel };
             }
         }
 
@@ -402,7 +395,6 @@ const RSS_FEEDS = [
                 "Authorization": `Bearer ${key}`,
                 "Content-Type": "application/json"
             };
-            // Для OpenRouter добавляем дополнительные заголовки
             if (config.url.includes('openrouter')) {
                 headers["HTTP-Referer"] = APP_URL;
                 headers["X-Title"] = APP_NAME;
@@ -443,26 +435,34 @@ const RSS_FEEDS = [
             const encodedUrl = encodeURIComponent(rssUrl);
             const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodedUrl}`;
 
-            const response = await fetch(apiUrl);
-            if (!response.ok) throw new Error('Network response was not ok');
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    console.warn(`RSS fetch failed for ${rssUrl}: status ${response.status}`);
+                    return news;
+                }
+                const data = await response.json();
+                if (data.status !== 'ok' || !data.items) {
+                    console.warn(`Invalid RSS data from ${rssUrl}`);
+                    return news;
+                }
 
-            const data = await response.json();
-            if (data.status !== 'ok' || !data.items) throw new Error('Invalid RSS data');
+                for (const item of data.items) {
+                    const pubDate = new Date(item.pubDate);
+                    const title = item.title || '';
+                    const description = item.description || '';
 
-            for (const item of data.items) {
-                const pubDate = new Date(item.pubDate);
-                const title = item.title || '';
-                const description = item.description || '';
-
-                news.push({
-                    id: Math.random().toString(36).substr(2, 9),
-                    time: pubDate,
-                    title: title.substring(0, 150),
-                    text: description.replace(/<[^>]*>/g, '').substring(0, 200),
-                    link: item.link
-                });
+                    news.push({
+                        id: Math.random().toString(36).substr(2, 9),
+                        time: pubDate,
+                        title: title.substring(0, 150),
+                        text: description.replace(/<[^>]*>/g, '').substring(0, 200),
+                        link: item.link
+                    });
+                }
+            } catch (e) {
+                console.warn(`Error fetching ${rssUrl}:`, e.message);
             }
-
             return news;
         }
 
@@ -512,10 +512,8 @@ const RSS_FEEDS = [
 
             const allFetchedNews = [];
             for (const rssUrl of RSS_FEEDS) {
-                try {
-                    const news = await fetchFromRSS(rssUrl);
-                    allFetchedNews.push(...news);
-                } catch (e) { console.log(`Failed to fetch ${rssUrl}:`, e); }
+                const news = await fetchFromRSS(rssUrl);
+                allFetchedNews.push(...news);
             }
 
             if (allFetchedNews.length === 0) {
@@ -660,7 +658,6 @@ const RSS_FEEDS = [
             const c = historyData.map(d => d.close);
             const closes = c;
 
-            // RSI (14)
             let g = 0, l = 0;
             for (let i = closes.length - 14; i < closes.length; i++) {
                 const d = closes[i] - closes[i - 1];
@@ -668,11 +665,9 @@ const RSS_FEEDS = [
             }
             const rsi = l === 0 ? 100 : 100 - (100 / (1 + g / l));
 
-            // EMA (12, 26) для MACD
             const ema = (p, per) => p.slice(1).reduce((e, v) => v * (2 / (per + 1)) + e * (1 - 2 / (per + 1)), p[0]);
             const macdLine = ema(closes, 12) - ema(closes, 26);
 
-            // ATR (14)
             let tr = 0;
             for (let i = historyData.length - 14; i < historyData.length; i++) {
                 const h = historyData[i].high, l = historyData[i].low, pc = historyData[i - 1].close;
@@ -680,11 +675,9 @@ const RSS_FEEDS = [
             }
             const atr = tr / 14;
 
-            // EMA(50) и EMA(200)
             const ema50 = ema(closes.slice(-50), 50);
             const ema200 = ema(closes, 200);
 
-            // Полосы Боллинджера (20, 2)
             const periodBB = 20;
             const bbCloses = closes.slice(-periodBB);
             const mean = bbCloses.reduce((a, b) => a + b, 0) / periodBB;
@@ -692,9 +685,7 @@ const RSS_FEEDS = [
             const upperBB = mean + 2 * stdDev;
             const lowerBB = mean - 2 * stdDev;
 
-            // Динамика цены за последние 3 свечи
             const priceChange3 = (closes[closes.length - 1] - closes[closes.length - 4]) / closes[closes.length - 4] * 100;
-            // Простая динамика MACD (последнее значение минус предыдущее)
             const macdPrev = ema(closes.slice(0, -1), 12) - ema(closes.slice(0, -1), 26);
             const macdChange = macdLine - macdPrev;
 
@@ -713,17 +704,8 @@ const RSS_FEEDS = [
             document.getElementById('statBBlower').innerText = lowerBB.toFixed(2);
 
             return {
-                rsi,
-                atr,
-                macd: macdLine,
-                price: lastPrice,
-                trend,
-                ema50,
-                ema200,
-                upperBB,
-                lowerBB,
-                priceChange3,
-                macdChange
+                rsi, atr, macd: macdLine, price: lastPrice, trend,
+                ema50, ema200, upperBB, lowerBB, priceChange3, macdChange
             };
         }
 
@@ -736,7 +718,6 @@ const RSS_FEEDS = [
             const tech = calcTech();
             if (!tech) { console.log("Анализ пропущен: недостаточно данных"); return; }
 
-            // Сохраняем время и цену для автоанализа
             lastAnalysisTime = Date.now();
             lastAnalysisPrice = tech.price;
 
@@ -787,6 +768,9 @@ ${newsContext}
                 headers["X-Title"] = APP_NAME;
             }
 
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
             try {
                 const res = await fetch(config.url, {
                     method: "POST",
@@ -796,38 +780,84 @@ ${newsContext}
                         messages: [{ role: "user", content: prompt }],
                         temperature: 0.1,
                         stream: false
-                    })
+                    }),
+                    signal: controller.signal
                 });
+
+                clearTimeout(timeoutId);
+
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    throw new Error(`HTTP ${res.status}: ${errorText}`);
+                }
+
                 const data = await res.json();
-                if(data.error) throw new Error(data.error.message);
+                if (data.error) throw new Error(data.error.message);
+                
                 const json = parse(data.choices[0].message.content);
-                // Проверяем, нужно ли обновлять UI
                 if (shouldUpdateUI(json, tech.price)) {
+                    playAlertSound();
                     updateUI(json, tech.price);
                 } else {
                     console.log('Сигнал не изменился, UI не обновлён');
+                    restorePreviousSignal();
                 }
-            } catch(e) {
+            } catch (e) {
+                clearTimeout(timeoutId);
+                console.error("Ошибка анализа:", e);
+                let errorMessage = e.message;
+                if (e.name === 'AbortError') {
+                    errorMessage = 'Превышено время ожидания ответа от AI (15 сек)';
+                }
                 document.getElementById('signal_text').innerText = "ОШИБКА";
-                document.getElementById('ai_desc').innerText = e.message;
+                document.getElementById('ai_desc').innerText = errorMessage;
                 document.getElementById('ai_desc').style.display = 'block';
+                restorePreviousSignal();
             }
         }
 
         function parse(s) { try { return JSON.parse(s.match(/\{[\s\S]*\}/)[0]); } catch { return {signal:"ДЕРЖАТЬ", confidence:0, reason:"err", entry:0,tp:0,sl:0}; } }
 
-        // Функция сравнения сигналов
         function shouldUpdateUI(newSignal, currentPrice) {
-            // Если сигнал отличается от предыдущего, обновляем
             if (newSignal.signal !== lastSignal.signal) return true;
-            // Если сигнал тот же, но уверенность изменилась сильно (>20%), можно обновить (опционально)
             if (Math.abs(newSignal.confidence - lastSignal.confidence) > 20) return true;
-            // Если сигнал тот же и уверенность примерно та же, не обновляем
             return false;
         }
 
+        function playAlertSound() {
+            try {
+                const audio = new Audio(ALERT_SOUND_URL);
+                audio.play().catch(e => console.log("Ошибка воспроизведения звука (возможно, нужно взаимодействие с пользователем)", e));
+            } catch (e) {
+                console.error("Ошибка при создании Audio объекта", e);
+            }
+        }
+
+        function restorePreviousSignal() {
+            if (lastSignal && lastSignal.signal) {
+                const ui = document.getElementById('signal_ui');
+                ui.className = "signal-display " + (lastSignal.signal==='ПОКУПКА'?'buy':lastSignal.signal==='ПРОДАЖА'?'sell':'hold');
+                document.getElementById('signal_text').innerText = lastSignal.signal;
+                document.getElementById('signal_confidence').innerText = `Уверенность: ${lastSignal.confidence}%`;
+                document.getElementById('ai_desc').innerText = lastSignal.reason;
+                if(lastSignal.entry && lastSignal.tp && lastSignal.sl && !isNaN(lastSignal.entry)) {
+                    document.getElementById('tradePlanBox').style.display='block';
+                    document.getElementById('aiEntry').innerText = lastSignal.entry.toFixed(2);
+                    document.getElementById('aiTP').innerText = lastSignal.tp.toFixed(2);
+                    document.getElementById('aiSL').innerText = lastSignal.sl.toFixed(2);
+                    drawPlan(lastSignal.entry, lastSignal.tp, lastSignal.sl);
+                } else {
+                    document.getElementById('tradePlanBox').style.display = 'none';
+                }
+            } else {
+                document.getElementById('signal_text').innerText = "ОЖИДАНИЕ";
+                document.getElementById('signal_confidence').innerText = '';
+                document.getElementById('ai_desc').style.display = 'none';
+                document.getElementById('tradePlanBox').style.display = 'none';
+            }
+        }
+
         function updateUI(j, p) {
-            // Запоминаем новый сигнал
             lastSignal = { ...j };
 
             const ui = document.getElementById('signal_ui');
@@ -880,14 +910,13 @@ ${newsContext}
                 const priceChangePercent = Math.abs((currentPrice - lastAnalysisPrice) / lastAnalysisPrice * 100);
                 const timeSinceLastAnalysis = now - lastAnalysisTime;
 
-                // Запускаем, если цена изменилась достаточно ИЛИ прошло больше 10 минут (форс-мажор)
                 if (priceChangePercent >= MIN_PRICE_CHANGE_PERCENT || timeSinceLastAnalysis > 10 * 60 * 1000) {
                     console.log('Running auto analysis at', new Date().toLocaleTimeString(), `(price change: ${priceChangePercent.toFixed(2)}%)`);
                     runAnalysis();
                 } else {
                     console.log('Auto analysis skipped: price change too small', priceChangePercent.toFixed(2), '%');
                 }
-            }, 60000); // проверяем каждую минуту
+            }, 60000);
         }
 
         // ==================== INIT ==================
