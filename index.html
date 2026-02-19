@@ -369,16 +369,16 @@
             }
         }
 
-        // ==================== 3. НОВОСТИ (ПРОВЕРЕННЫЕ ИСТОЧНИКИ) ==================
+        // ==================== 3. НОВОСТИ (ОБНОВЛЁННЫЙ СПИСОК) ==================
         const RSS_FEEDS = [
             // Российские
             'https://lenta.ru/rss/news',
             'https://www.vedomosti.ru/rss/articles',
-            'https://ria.ru/export/rss2/economy/index.xml',
-            // Зарубежные (работают через rss2json)
+            // Зарубежные (проверены на совместимость с rss2json)
             'https://feeds.bbci.co.uk/news/business/rss.xml',
             'https://www.ft.com/rss/world',
-            'https://www.economist.com/feeds/print-sections/77/business.xml'
+            'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=1583903690', // CNBC Business
+            'https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml' // Wall Street Journal
         ];
 
         // Определяем конфигурацию API в зависимости от выбранной модели
@@ -760,7 +760,6 @@
 
             document.getElementById('signal_text').innerText = "АНАЛИЗ...";
             document.getElementById('tradePlanBox').style.display = 'none';
-            // скрываем блок анализа, пока идёт запрос
             document.getElementById('ai_desc').style.display = 'none';
 
             let newsContext = "НОВОСТНОЙ ФОН:\n";
@@ -833,7 +832,7 @@ ${newsContext}
                 if (data.error) throw new Error(data.error.message);
                 
                 const json = parse(data.choices[0].message.content);
-                console.log('Получен сигнал:', json); // для отладки
+                console.log('Получен сигнал:', json);
                 if (shouldUpdateUI(json, tech.price)) {
                     playAlertSound();
                     updateUI(json, tech.price);
@@ -885,7 +884,7 @@ ${newsContext}
                 document.getElementById('signal_text').innerText = lastSignal.signal;
                 document.getElementById('signal_confidence').innerText = `Уверенность: ${lastSignal.confidence}%`;
                 document.getElementById('ai_desc').innerText = lastSignal.reason;
-                document.getElementById('ai_desc').style.display = 'block'; // показываем блок с анализом
+                document.getElementById('ai_desc').style.display = 'block';
                 if (lastSignal.entry && lastSignal.tp && lastSignal.sl && !isNaN(lastSignal.entry)) {
                     document.getElementById('tradePlanBox').style.display = 'block';
                     document.getElementById('aiEntry').innerText = lastSignal.entry.toFixed(2);
@@ -911,8 +910,7 @@ ${newsContext}
             document.getElementById('signal_text').innerText = j.signal;
             document.getElementById('signal_confidence').innerText = `Уверенность: ${j.confidence}%`;
             document.getElementById('ai_desc').innerText = j.reason;
-            document.getElementById('ai_desc').style.display = 'block'; // показываем блок анализа
-            // по умолчанию блок развёрнут, но можно оставить как есть (пользователь сам сворачивает)
+            document.getElementById('ai_desc').style.display = 'block';
             if (j.entry && j.tp && j.sl && !isNaN(j.entry)) {
                 document.getElementById('tradePlanBox').style.display = 'block';
                 document.getElementById('aiEntry').innerText = j.entry.toFixed(2);
@@ -924,7 +922,6 @@ ${newsContext}
             }
         }
 
-        // Функция сворачивания/разворачивания анализа
         function toggleAnalysis() {
             const content = document.getElementById('ai_desc');
             const icon = document.getElementById('toggleIcon');
