@@ -1,11 +1,11 @@
 {
   "builds": [
     {
-      "src": "api/rss.py",
+      "src": "rss.py",
       "use": "@vercel/python"
     }
   ],
   "rewrites": [
-    { "source": "/api/rss", "destination": "/api/rss.py" }
+    { "source": "rss", "destination": "rss.py" }
   ]
 }
