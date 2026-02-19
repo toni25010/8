@@ -6,7 +6,6 @@
     <title>AI Terminal | Мультиинструмент</title>
     <script src="https://unpkg.com/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        /* ... (стили без изменений, как в предыдущей полной версии) ... */
         :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #8957e5; --buy: #238636; --sell: #f85149; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 12px; min-height: 100vh; }
@@ -96,6 +95,37 @@
             margin-left: 8px;
         }
 
+        /* Сворачиваемый блок анализа */
+        .analysis-summary {
+            margin-top: 12px;
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .summary-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #161b22;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            color: #8b949e;
+        }
+        .summary-header:hover {
+            background: #1f242c;
+        }
+        #ai_desc {
+            padding: 10px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--text);
+            border-top: 1px solid var(--border);
+            white-space: pre-wrap;
+        }
+
         @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -162,7 +192,14 @@
                 <div class="plan-row"><span><span class="dot" style="background: var(--sell);"></span>SL</span><span id="aiSL" style="color: var(--sell)">--</span></div>
             </div>
 
-            <div id="ai_desc" class="error-msg" style="display:none;"></div>
+            <!-- Сворачиваемый блок анализа -->
+            <div class="analysis-summary">
+                <div class="summary-header" onclick="toggleAnalysis()">
+                    <span>Анализ сигнала</span>
+                    <span id="toggleIcon">▼</span>
+                </div>
+                <div id="ai_desc" class="summary-content" style="display: none;"></div>
+            </div>
 
             <div class="stats-grid" id="statsGrid" style="display: none;">
                 <div class="stat-item"><div style="color: #8b949e;">RSI</div><div id="statRsi">-</div></div>
@@ -723,6 +760,7 @@
 
             document.getElementById('signal_text').innerText = "АНАЛИЗ...";
             document.getElementById('tradePlanBox').style.display = 'none';
+            // скрываем блок анализа, пока идёт запрос
             document.getElementById('ai_desc').style.display = 'none';
 
             let newsContext = "НОВОСТНОЙ ФОН:\n";
@@ -795,6 +833,7 @@ ${newsContext}
                 if (data.error) throw new Error(data.error.message);
                 
                 const json = parse(data.choices[0].message.content);
+                console.log('Получен сигнал:', json); // для отладки
                 if (shouldUpdateUI(json, tech.price)) {
                     playAlertSound();
                     updateUI(json, tech.price);
@@ -816,7 +855,13 @@ ${newsContext}
             }
         }
 
-        function parse(s) { try { return JSON.parse(s.match(/\{[\s\S]*\}/)[0]); } catch { return {signal:"ДЕРЖАТЬ", confidence:0, reason:"err", entry:0,tp:0,sl:0}; } }
+        function parse(s) {
+            try {
+                return JSON.parse(s.match(/\{[\s\S]*\}/)[0]);
+            } catch {
+                return { signal: "ДЕРЖАТЬ", confidence: 0, reason: "err", entry: 0, tp: 0, sl: 0 };
+            }
+        }
 
         function shouldUpdateUI(newSignal, currentPrice) {
             if (newSignal.signal !== lastSignal.signal) return true;
@@ -836,12 +881,13 @@ ${newsContext}
         function restorePreviousSignal() {
             if (lastSignal && lastSignal.signal) {
                 const ui = document.getElementById('signal_ui');
-                ui.className = "signal-display " + (lastSignal.signal==='ПОКУПКА'?'buy':lastSignal.signal==='ПРОДАЖА'?'sell':'hold');
+                ui.className = "signal-display " + (lastSignal.signal === 'ПОКУПКА' ? 'buy' : lastSignal.signal === 'ПРОДАЖА' ? 'sell' : 'hold');
                 document.getElementById('signal_text').innerText = lastSignal.signal;
                 document.getElementById('signal_confidence').innerText = `Уверенность: ${lastSignal.confidence}%`;
                 document.getElementById('ai_desc').innerText = lastSignal.reason;
-                if(lastSignal.entry && lastSignal.tp && lastSignal.sl && !isNaN(lastSignal.entry)) {
-                    document.getElementById('tradePlanBox').style.display='block';
+                document.getElementById('ai_desc').style.display = 'block'; // показываем блок с анализом
+                if (lastSignal.entry && lastSignal.tp && lastSignal.sl && !isNaN(lastSignal.entry)) {
+                    document.getElementById('tradePlanBox').style.display = 'block';
                     document.getElementById('aiEntry').innerText = lastSignal.entry.toFixed(2);
                     document.getElementById('aiTP').innerText = lastSignal.tp.toFixed(2);
                     document.getElementById('aiSL').innerText = lastSignal.sl.toFixed(2);
@@ -861,20 +907,33 @@ ${newsContext}
             lastSignal = { ...j };
 
             const ui = document.getElementById('signal_ui');
-            ui.className = "signal-display " + (j.signal==='ПОКУПКА'?'buy':j.signal==='ПРОДАЖА'?'sell':'hold');
+            ui.className = "signal-display " + (j.signal === 'ПОКУПКА' ? 'buy' : j.signal === 'ПРОДАЖА' ? 'sell' : 'hold');
             document.getElementById('signal_text').innerText = j.signal;
             document.getElementById('signal_confidence').innerText = `Уверенность: ${j.confidence}%`;
             document.getElementById('ai_desc').innerText = j.reason;
-            document.getElementById('ai_desc').style.display = 'block';
-            
-            if(j.entry && j.tp && j.sl && !isNaN(j.entry)) {
-                document.getElementById('tradePlanBox').style.display='block';
+            document.getElementById('ai_desc').style.display = 'block'; // показываем блок анализа
+            // по умолчанию блок развёрнут, но можно оставить как есть (пользователь сам сворачивает)
+            if (j.entry && j.tp && j.sl && !isNaN(j.entry)) {
+                document.getElementById('tradePlanBox').style.display = 'block';
                 document.getElementById('aiEntry').innerText = j.entry.toFixed(2);
                 document.getElementById('aiTP').innerText = j.tp.toFixed(2);
                 document.getElementById('aiSL').innerText = j.sl.toFixed(2);
                 drawPlan(j.entry, j.tp, j.sl);
             } else {
                 document.getElementById('tradePlanBox').style.display = 'none';
+            }
+        }
+
+        // Функция сворачивания/разворачивания анализа
+        function toggleAnalysis() {
+            const content = document.getElementById('ai_desc');
+            const icon = document.getElementById('toggleIcon');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.innerText = '▼';
+            } else {
+                content.style.display = 'none';
+                icon.innerText = '▶';
             }
         }
 
@@ -924,14 +983,14 @@ ${newsContext}
 
         window.onload = async () => {
             const k = localStorage.getItem('si_k');
-            if(k) document.getElementById('api_key_input').value = k;
+            if (k) document.getElementById('api_key_input').value = k;
 
             const initialTicker = document.getElementById('tickerInput').value;
             setTicker(initialTicker);
 
             await Promise.all([fetchQuotes(), fetchCandles(), fetchNews()]);
 
-            setInterval(fetchQuotes, 2000); 
+            setInterval(fetchQuotes, 2000);
             setInterval(fetchNews, 600000);
 
             scheduleNextCandleUpdate();
