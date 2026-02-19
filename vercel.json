@@ -6,6 +6,6 @@
     }
   ],
   "rewrites": [
-    { "source": "rss", "destination": "rss.py" }
+    { "source": "/api/rss", "destination": "/rss.py" }
   ]
 }
